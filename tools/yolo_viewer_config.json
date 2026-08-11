@@ -1,0 +1,5 @@
+{
+  "image_folder": "E:/\u6b66\u80dc\u5173\u89c6\u9891/swimming/swim/train/images",
+  "label_folder": "E:/\u6b66\u80dc\u5173\u89c6\u9891/swimming/swim/train/labels",
+  "last_class_id": 1
+}
