@@ -25,7 +25,7 @@ class CountPage(tk.Frame):
         top = tk.Frame(self, bg=BG)
         top.pack(fill="x", padx=24, pady=(20, 12))
         tk.Label(top, text="类别统计增强", bg=BG, fg=TEXT, font=("Microsoft YaHei UI", 20, "bold")).pack(anchor="w")
-        tk.Label(top, text="统计类别实例、图片覆盖、空标签、尺寸分布与宽高比分布", bg=BG, fg=MUTED, font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(4, 0))
+        tk.Label(top, text="统计类别实例、图片覆盖、空标签、尺寸分布与宽高比分布，输出会同步刷新图表与摘要。", bg=BG, fg=MUTED, font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(4, 0))
 
         body = tk.Frame(self, bg=BG)
         body.pack(fill="both", expand=True, padx=24, pady=(0, 20))
@@ -54,7 +54,7 @@ class CountPage(tk.Frame):
 
         self.summary_box = tk.LabelFrame(left, text="摘要", bg=PANEL, fg=TEXT, padx=10, pady=10)
         self.summary_box.pack(fill="both", expand=True, padx=16, pady=(0, 16))
-        self.summary_text = tk.Text(self.summary_box, height=14, wrap="word", bg="#eaf0f7", fg="#0f172a", relief="flat")
+        self.summary_text = tk.Text(self.summary_box, height=14, wrap="word", bg="#08111d", fg="#dbeafe", relief="flat", insertbackground="white")
         self.summary_text.pack(fill="both", expand=True)
 
         right = SectionCard(body, "统计结果")
@@ -145,6 +145,9 @@ class CountPage(tk.Frame):
             f"小目标: {stats.small_count}",
             f"中目标: {stats.medium_count}",
             f"大目标: {stats.large_count}",
+            f"类别数: {len(stats.class_stats)}",
+            f"面积分布项: {len(stats.area_bins)}",
+            f"宽高比分布项: {len(stats.aspect_ratio_bins)}",
         ]
         self.summary_text.insert("1.0", "\n".join(summary))
 

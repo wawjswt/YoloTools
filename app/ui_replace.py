@@ -1,7 +1,5 @@
 import os
-import threading
 import tkinter as tk
-from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from .theme import *
@@ -20,13 +18,14 @@ class ReplacePage(tk.Frame):
     def __init__(self, master, app):
         super().__init__(master, bg=BG)
         self.app = app
+        self.preview_results = None
         self._build()
 
     def _build(self):
         top = tk.Frame(self, bg=BG)
         top.pack(fill="x", padx=24, pady=(20, 12))
         tk.Label(top, text="类别重整", bg=BG, fg=TEXT, font=("Microsoft YaHei UI", 20, "bold")).pack(anchor="w")
-        tk.Label(top, text="单类替换、多类合并、删除、重排序、按新 classes.txt 自动重映射", bg=BG, fg=MUTED, font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(4, 0))
+        tk.Label(top, text="先预览映射结果，再决定是否写回文件。输出会包含修改量、受影响文件和动作摘要。", bg=BG, fg=MUTED, font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(4, 0))
 
         body = tk.Frame(self, bg=BG)
         body.pack(fill="both", expand=True, padx=24, pady=(0, 20))
@@ -50,7 +49,6 @@ class ReplacePage(tk.Frame):
         form = tk.Frame(left, bg=PANEL)
         form.pack(fill="x", padx=16, pady=(0, 12))
         form.grid_columnconfigure(1, weight=1)
-
         self._file_row(form, 0, "标注文件夹", self.var_folder, self.browse_folder)
         self._file_row(form, 1, "classes.txt", self.var_classes, self.browse_classes)
 
@@ -68,20 +66,19 @@ class ReplacePage(tk.Frame):
 
         self.param_box = tk.Frame(left, bg=PANEL)
         self.param_box.pack(fill="x", padx=16, pady=(0, 12))
-
         self.preview = tk.Label(left, text="", bg=PANEL, fg=PRIMARY, font=("Microsoft YaHei UI", 9, "bold"), wraplength=300, justify="left")
         self.preview.pack(fill="x", padx=16, pady=(0, 12))
 
         actions = tk.Frame(left, bg=PANEL)
         actions.pack(fill="x", padx=16, pady=(0, 12))
-        ttk.Button(actions, text="开始执行", style="Primary.TButton", command=self.run).pack(fill="x")
+        ttk.Button(actions, text="预览结果", style="Primary.TButton", command=self.preview_run).pack(fill="x")
+        ttk.Button(actions, text="应用并落盘", command=self.apply_run).pack(fill="x", pady=(8, 0))
         ttk.Button(actions, text="清空日志", command=self.clear_log).pack(fill="x", pady=(8, 0))
 
         log_card = SectionCard(left, "处理日志")
         log_card.pack(fill="both", expand=True, padx=16, pady=(0, 16))
         self.log = LogBox(log_card, height=16)
         self.log.pack(fill="both", expand=True, padx=16, pady=(0, 16))
-
         self.update_mode()
 
     def _file_row(self, parent, row, label, var, command):
@@ -105,24 +102,23 @@ class ReplacePage(tk.Frame):
     def update_mode(self):
         for child in self.param_box.winfo_children():
             child.destroy()
-
         mode = self.var_mode.get()
         if mode == "single":
             self._add_param("源 ID", self.var_src)
             self._add_param("目标 ID", self.var_dst)
-            self.preview.config(text="示例：0 -> 2")
+            self.preview.config(text="示例: 0 -> 2")
         elif mode == "merge":
             self._add_param("合并组", self.var_merge_groups)
-            self.preview.config(text="格式：0,1;2,3 表示把两组分别合并为新类别")
+            self.preview.config(text="示例: 0,1;2,3 表示两组分别合并为新类")
         elif mode == "delete":
             self._add_param("删除 ID", self.var_delete)
-            self.preview.config(text="格式：0,2,5 表示删除这些类别")
+            self.preview.config(text="示例: 0,2,5 表示删除这些类别")
         elif mode == "reorder":
             self._add_param("新顺序", self.var_order)
-            self.preview.config(text="格式：2,0,1 表示按这个顺序重排 classes.txt 和标签 ID")
+            self.preview.config(text="示例: 2,0,1 表示按该顺序重排 classes.txt 和标签 ID")
         else:
             self._add_param("新 classes.txt", self.var_new_classes)
-            self.preview.config(text="按新 classes.txt 名称顺序自动重映射旧标签")
+            self.preview.config(text="按新 classes.txt 的名称顺序自动重映射旧标签")
 
     def _add_param(self, label, var):
         row = tk.Frame(self.param_box, bg=PANEL)
@@ -130,108 +126,125 @@ class ReplacePage(tk.Frame):
         tk.Label(row, text=label, bg=PANEL, fg=TEXT, font=("Microsoft YaHei UI", 10)).pack(anchor="w")
         ttk.Entry(row, textvariable=var).pack(fill="x", pady=(4, 0))
 
-    def run(self):
+    def _validate(self):
         folder = self.var_folder.get().strip()
-        classes_path = self.var_classes.get().strip()
         if not folder or not os.path.isdir(folder):
-            messagebox.showerror("错误", "请选择有效标注文件夹")
-            return
+            raise ValueError("请选择有效标注文件夹")
+        return folder
 
-        mode = self.var_mode.get()
-        self.log.clear()
+    def preview_run(self):
+        try:
+            folder = self._validate()
+            classes_path = self.var_classes.get().strip()
+            mode = self.var_mode.get()
+            self.log.clear()
+            results = self._compute(folder, classes_path, mode, preview_only=True)
+            self.preview_results = results
+            self.log.write("[PREVIEW] 仅模拟，不写盘\n")
+            self.log.write("\n".join(results["lines"]) + "\n")
+        except Exception as e:
+            messagebox.showerror("错误", str(e))
 
-        def task():
-            try:
-                if mode == "single":
-                    self._run_single(folder, classes_path)
-                elif mode == "merge":
-                    self._run_merge(folder, classes_path)
-                elif mode == "delete":
-                    self._run_delete(folder, classes_path)
-                elif mode == "reorder":
-                    self._run_reorder(folder, classes_path)
-                else:
-                    self._run_remap(folder, classes_path)
-            except Exception as e:
-                self.after(0, lambda: self.log.write(f"\n[错误] {e}\n"))
+    def apply_run(self):
+        try:
+            folder = self._validate()
+            classes_path = self.var_classes.get().strip()
+            mode = self.var_mode.get()
+            self.log.clear()
+            results = self._compute(folder, classes_path, mode, preview_only=False)
+            self.log.write("[APPLY] 已写入文件\n")
+            self.log.write("\n".join(results["lines"]) + "\n")
+        except Exception as e:
+            messagebox.showerror("错误", str(e))
 
-        threading.Thread(target=task, daemon=True).start()
+    def _compute(self, folder, classes_path, mode, preview_only=False):
+        lines = []
+        if mode == "single":
+            src = int(self.var_src.get().strip())
+            dst = int(self.var_dst.get().strip())
+            mapping = {src: dst}
+            lines.append(f"映射: {src} -> {dst}")
+            if preview_only:
+                results = apply_mapping_to_folder(folder, mapping)
+            else:
+                results = apply_mapping_to_folder(folder, mapping)
+                if classes_path and os.path.exists(classes_path):
+                    classes = read_classes_file(classes_path)
+                    if classes:
+                        new_classes = remap_classes_by_index(classes, mapping)
+                        write_classes_file(classes_path, new_classes)
+            lines.extend([f"{r.path}: changed={r.changed_count}" for r in results[:20]])
+            lines.append(f"文件数: {len(results)}")
+            lines.append(f"修改文件: {sum(1 for r in results if r.modified)}")
+            return {"lines": lines}
 
-    def _run_single(self, folder, classes_path):
-        src = int(self.var_src.get().strip())
-        dst = int(self.var_dst.get().strip())
-        classes = read_classes_file(classes_path) if classes_path else []
-        mapping = {src: dst}
-        results = apply_mapping_to_folder(folder, mapping)
-        if classes_path and classes:
-            new_classes = remap_classes_by_index(classes, mapping)
-            write_classes_file(classes_path, new_classes)
-        self.after(0, lambda: self._finish(results, classes_path, classes))
-
-    def _run_merge(self, folder, classes_path):
-        groups_text = self.var_merge_groups.get().strip()
-        groups = []
-        target_names = []
-        for idx, chunk in enumerate(groups_text.split(";")):
-            ids = [int(x.strip()) for x in chunk.split(",") if x.strip()]
-            if ids:
-                groups.append(ids)
-                target_names.append(f"merged_{idx}")
-        if not groups:
-            raise ValueError("请填写有效合并组")
-
-        classes = read_classes_file(classes_path) if classes_path else []
-        mapping = {}
-        for idx, group in enumerate(groups):
-            target_id = len(classes) + idx
-            for old_id in group:
-                mapping[old_id] = target_id
-        results = apply_mapping_to_folder(folder, mapping)
-        new_classes = list(classes) + target_names
-        if classes_path:
-            write_classes_file(classes_path, new_classes)
-        self.after(0, lambda: self._finish(results, classes_path, new_classes))
-
-    def _run_delete(self, folder, classes_path):
-        delete_ids = [int(x.strip()) for x in self.var_delete.get().split(",") if x.strip()]
-        mapping = {cid: None for cid in delete_ids}
-        results = apply_mapping_to_folder(folder, mapping)
-        classes = read_classes_file(classes_path) if classes_path else []
-        if classes:
-            new_classes = [name for idx, name in enumerate(classes) if idx not in set(delete_ids)]
-            if classes_path:
+        if mode == "merge":
+            groups_text = self.var_merge_groups.get().strip()
+            groups = []
+            for chunk in groups_text.split(";"):
+                ids = [int(x.strip()) for x in chunk.split(",") if x.strip()]
+                if ids:
+                    groups.append(ids)
+            if not groups:
+                raise ValueError("请输入有效合并组")
+            lines.append(f"合并组: {groups}")
+            classes = read_classes_file(classes_path) if classes_path else []
+            mapping = {}
+            for idx, group in enumerate(groups):
+                target_id = len(classes) + idx
+                for old_id in group:
+                    mapping[old_id] = target_id
+            results = apply_mapping_to_folder(folder, mapping)
+            if not preview_only and classes_path:
+                new_classes = list(classes) + [f"merged_{i}" for i in range(len(groups))]
                 write_classes_file(classes_path, new_classes)
-        else:
-            new_classes = []
-        self.after(0, lambda: self._finish(results, classes_path, new_classes))
+            lines.extend([f"{r.path}: changed={r.changed_count}" for r in results[:20]])
+            lines.append(f"文件数: {len(results)}")
+            lines.append(f"修改文件: {sum(1 for r in results if r.modified)}")
+            return {"lines": lines}
 
-    def _run_reorder(self, folder, classes_path):
-        order = [int(x.strip()) for x in self.var_order.get().split(",") if x.strip()]
-        classes = read_classes_file(classes_path)
-        if not classes:
-            raise ValueError("请先提供 classes.txt")
-        new_classes = reorder_classes(classes, order)
-        old_to_new = {old: new for new, old in enumerate(order) if 0 <= old < len(classes)}
-        results = apply_mapping_to_folder(folder, old_to_new)
-        if classes_path:
-            write_classes_file(classes_path, new_classes)
-        self.after(0, lambda: self._finish(results, classes_path, new_classes))
+        if mode == "delete":
+            delete_ids = [int(x.strip()) for x in self.var_delete.get().split(",") if x.strip()]
+            mapping = {cid: None for cid in delete_ids}
+            lines.append(f"删除: {delete_ids}")
+            results = apply_mapping_to_folder(folder, mapping)
+            if not preview_only and classes_path and os.path.exists(classes_path):
+                classes = read_classes_file(classes_path)
+                if classes:
+                    new_classes = [name for idx, name in enumerate(classes) if idx not in set(delete_ids)]
+                    write_classes_file(classes_path, new_classes)
+            lines.extend([f"{r.path}: changed={r.changed_count}" for r in results[:20]])
+            lines.append(f"文件数: {len(results)}")
+            lines.append(f"修改文件: {sum(1 for r in results if r.modified)}")
+            return {"lines": lines}
 
-    def _run_remap(self, folder, classes_path):
+        if mode == "reorder":
+            order = [int(x.strip()) for x in self.var_order.get().split(",") if x.strip()]
+            classes = read_classes_file(classes_path)
+            if not classes:
+                raise ValueError("请先提供 classes.txt")
+            new_classes = reorder_classes(classes, order)
+            old_to_new = {old: new for new, old in enumerate(order) if 0 <= old < len(classes)}
+            lines.append(f"新顺序: {order}")
+            results = apply_mapping_to_folder(folder, old_to_new)
+            if not preview_only and classes_path:
+                write_classes_file(classes_path, new_classes)
+            lines.extend([f"{r.path}: changed={r.changed_count}" for r in results[:20]])
+            lines.append(f"文件数: {len(results)}")
+            lines.append(f"修改文件: {sum(1 for r in results if r.modified)}")
+            return {"lines": lines}
+
         new_classes_path = self.var_new_classes.get().strip()
         if not new_classes_path or not os.path.exists(new_classes_path):
             raise ValueError("请选择新的 classes.txt")
         old_classes = read_classes_file(classes_path)
         new_classes = read_classes_file(new_classes_path)
         mapping = build_remap_from_new_classes(old_classes, new_classes)
+        lines.append(f"新 classes.txt: {new_classes_path}")
         results = apply_mapping_to_folder(folder, mapping)
-        if classes_path:
+        if not preview_only and classes_path:
             write_classes_file(classes_path, new_classes)
-        self.after(0, lambda: self._finish(results, classes_path, new_classes))
-
-    def _finish(self, results, classes_path, classes):
-        updated = sum(1 for r in results if r.modified)
-        changed = sum(r.changed_count for r in results)
-        self.log.write(f"完成，更新文件 {updated} 个，修改标注 {changed} 处\n")
-        if classes_path and classes:
-            self.log.write(f"已同步更新类别文件: {classes_path}\n")
+        lines.extend([f"{r.path}: changed={r.changed_count}" for r in results[:20]])
+        lines.append(f"文件数: {len(results)}")
+        lines.append(f"修改文件: {sum(1 for r in results if r.modified)}")
+        return {"lines": lines}
