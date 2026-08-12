@@ -1,3 +1,31 @@
 {
-  "theme_name": "Ocean"
+  "theme_name": "Ocean",
+  "theme_override": {
+    "name": "Ocean",
+    "bg": "#d5d1c6",
+    "bg_alt": "#c4f3ff",
+    "panel": "#abf0fc",
+    "panel_alt": "#81fecf",
+    "sidebar": "#040913",
+    "sidebar_active": "#00d4ff",
+    "sidebar_hover": "#0b1526",
+    "text": "#000000",
+    "muted": "#060381",
+    "border": "#cdf8fe",
+    "primary": "#00d4ff",
+    "primary_dark": "#00a7cc",
+    "accent": "#8b5cf6",
+    "accent_dark": "#6d28d9",
+    "success": "#22c55e",
+    "warning": "#f59e0b",
+    "danger": "#ef4444",
+    "font_family": "Microsoft YaHei UI",
+    "font_size": 10,
+    "title_size": 20,
+    "show_grid": true,
+    "show_axes": true,
+    "scale_style": "fit",
+    "button_radius": 0,
+    "corner_accent": true
+  }
 }

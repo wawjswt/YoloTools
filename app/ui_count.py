@@ -1,4 +1,3 @@
-import csv
 import os
 import threading
 import tkinter as tk
@@ -24,8 +23,8 @@ class CountPage(tk.Frame):
     def _build(self):
         top = tk.Frame(self, bg=BG)
         top.pack(fill="x", padx=24, pady=(20, 12))
-        tk.Label(top, text="类别统计增强", bg=BG, fg=TEXT, font=("Microsoft YaHei UI", 20, "bold")).pack(anchor="w")
-        tk.Label(top, text="统计类别实例、图片覆盖、空标签、尺寸分布与宽高比分布，输出会同步刷新图表与摘要。", bg=BG, fg=MUTED, font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(4, 0))
+        tk.Label(top, text="标注统计", bg=BG, fg=TEXT, font=("Microsoft YaHei UI", 20, "bold")).pack(anchor="w")
+        tk.Label(top, text="统计类别数量、图片覆盖率、空标注和尺寸分布，并同步生成表格与图表。", bg=BG, fg=MUTED, font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(4, 0))
 
         body = tk.Frame(self, bg=BG)
         body.pack(fill="both", expand=True, padx=24, pady=(0, 20))
@@ -34,10 +33,8 @@ class CountPage(tk.Frame):
 
         left = SectionCard(body, "统计参数")
         left.grid(row=0, column=0, rowspan=2, sticky="nsew", padx=(0, 10))
-        left.grid_propagate(False)
 
         self.var_folder = tk.StringVar()
-
         form = tk.Frame(left, bg=PANEL)
         form.pack(fill="x", padx=16, pady=(0, 12))
         form.grid_columnconfigure(1, weight=1)
@@ -120,7 +117,7 @@ class CountPage(tk.Frame):
     def run(self):
         folder = self.var_folder.get().strip()
         if not folder or not os.path.isdir(folder):
-            messagebox.showerror("错误", "请选择有效文件夹")
+            messagebox.showerror("错误", "请选择有效的标注文件夹")
             return
 
         def task():
@@ -139,7 +136,7 @@ class CountPage(tk.Frame):
             f"文件夹: {stats.folder}",
             f"图片总数: {stats.total_images}",
             f"有标注图片数: {stats.labeled_images}",
-            f"空标签图片数: {stats.empty_images}",
+            f"空标注图片数: {stats.empty_images}",
             f"总框数: {stats.total_boxes}",
             f"每张图平均框数: {stats.avg_boxes_per_image:.4f}",
             f"小目标: {stats.small_count}",
@@ -166,15 +163,13 @@ class CountPage(tk.Frame):
 
         class_ids = [str(x.class_id) for x in stats.class_stats]
         instances = [x.instance_count for x in stats.class_stats]
-        images = [x.image_count for x in stats.class_stats]
-
         self.ax_bar.bar(class_ids, instances, color="#2563eb")
         self.ax_bar.set_title("各类别实例数")
         self.ax_bar.set_ylabel("Instances")
         self.ax_bar.tick_params(axis="x", rotation=45)
 
-        self.ax_empty.bar(["空标签", "有标注"], [stats.empty_images, stats.labeled_images], color=["#ef4444", "#10b981"])
-        self.ax_empty.set_title("空标签图片 vs 有标注图片")
+        self.ax_empty.bar(["空标注", "有标注"], [stats.empty_images, stats.labeled_images], color=["#ef4444", "#10b981"])
+        self.ax_empty.set_title("空标注图片 vs 有标注图片")
 
         self.fig.tight_layout()
         self.chart_canvas.draw_idle()

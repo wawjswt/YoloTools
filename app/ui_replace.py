@@ -3,7 +3,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from .theme import *
-from .ui_convert import LogBox, SectionCard
+from .ui_convert import LogBox, SectionCard, ToolButton
 from tools.labelsto import (
     apply_mapping_to_folder,
     build_remap_from_new_classes,
@@ -24,17 +24,20 @@ class ReplacePage(tk.Frame):
     def _build(self):
         top = tk.Frame(self, bg=BG)
         top.pack(fill="x", padx=24, pady=(20, 12))
-        tk.Label(top, text="类别重整", bg=BG, fg=TEXT, font=("Microsoft YaHei UI", 20, "bold")).pack(anchor="w")
-        tk.Label(top, text="先预览映射结果，再决定是否写回文件。输出会包含修改量、受影响文件和动作摘要。", bg=BG, fg=MUTED, font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(4, 0))
+        tk.Label(top, text="类别替换", bg=BG, fg=TEXT, font=("Microsoft YaHei UI", 20, "bold")).pack(anchor="w")
+        tk.Label(top, text="先预览映射结果，再决定是否写回文件。右侧会显示处理日志、文件变化和摘要。", bg=BG, fg=MUTED, font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(4, 0))
 
         body = tk.Frame(self, bg=BG)
         body.pack(fill="both", expand=True, padx=24, pady=(0, 20))
+        body.grid_columnconfigure(0, weight=1)
         body.grid_columnconfigure(1, weight=1)
         body.grid_rowconfigure(0, weight=1)
 
         left = SectionCard(body, "操作参数")
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
-        left.grid_propagate(False)
+
+        right = SectionCard(body, "处理日志")
+        right.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
 
         self.var_folder = tk.StringVar()
         self.var_classes = tk.StringVar()
@@ -55,8 +58,8 @@ class ReplacePage(tk.Frame):
         mode_box = tk.LabelFrame(left, text="模式", bg=PANEL, fg=TEXT, padx=10, pady=10)
         mode_box.pack(fill="x", padx=16, pady=(0, 12))
         modes = [
-            ("single", "单类替换"),
-            ("merge", "多类合并"),
+            ("single", "单类别替换"),
+            ("merge", "多类别合并"),
             ("delete", "类别删除"),
             ("reorder", "类别重排序"),
             ("remap", "按新 classes.txt 重映射"),
@@ -66,19 +69,18 @@ class ReplacePage(tk.Frame):
 
         self.param_box = tk.Frame(left, bg=PANEL)
         self.param_box.pack(fill="x", padx=16, pady=(0, 12))
-        self.preview = tk.Label(left, text="", bg=PANEL, fg=PRIMARY, font=("Microsoft YaHei UI", 9, "bold"), wraplength=300, justify="left")
+        self.preview = tk.Label(left, text="", bg=PANEL, fg=PRIMARY, font=("Microsoft YaHei UI", 9, "bold"), wraplength=320, justify="left")
         self.preview.pack(fill="x", padx=16, pady=(0, 12))
 
         actions = tk.Frame(left, bg=PANEL)
         actions.pack(fill="x", padx=16, pady=(0, 12))
-        ttk.Button(actions, text="预览结果", style="Primary.TButton", command=self.preview_run).pack(fill="x")
-        ttk.Button(actions, text="应用并落盘", command=self.apply_run).pack(fill="x", pady=(8, 0))
-        ttk.Button(actions, text="清空日志", command=self.clear_log).pack(fill="x", pady=(8, 0))
+        ToolButton(actions, "预览结果", self.preview_run, accent=True).pack(fill="x")
+        ToolButton(actions, "应用并落盘", self.apply_run).pack(fill="x", pady=(10, 0))
+        ToolButton(actions, "清空日志", self.clear_log).pack(fill="x", pady=(10, 0))
 
-        log_card = SectionCard(left, "处理日志")
-        log_card.pack(fill="both", expand=True, padx=16, pady=(0, 16))
-        self.log = LogBox(log_card, height=16)
+        self.log = LogBox(right, height=22)
         self.log.pack(fill="both", expand=True, padx=16, pady=(0, 16))
+
         self.update_mode()
 
     def _file_row(self, parent, row, label, var, command):
@@ -109,7 +111,7 @@ class ReplacePage(tk.Frame):
             self.preview.config(text="示例: 0 -> 2")
         elif mode == "merge":
             self._add_param("合并组", self.var_merge_groups)
-            self.preview.config(text="示例: 0,1;2,3 表示两组分别合并为新类")
+            self.preview.config(text="示例: 0,1;2,3 表示两组类别分别合并成新类别")
         elif mode == "delete":
             self._add_param("删除 ID", self.var_delete)
             self.preview.config(text="示例: 0,2,5 表示删除这些类别")
@@ -129,7 +131,7 @@ class ReplacePage(tk.Frame):
     def _validate(self):
         folder = self.var_folder.get().strip()
         if not folder or not os.path.isdir(folder):
-            raise ValueError("请选择有效标注文件夹")
+            raise ValueError("请选择有效的标注文件夹")
         return folder
 
     def preview_run(self):
@@ -140,7 +142,7 @@ class ReplacePage(tk.Frame):
             self.log.clear()
             results = self._compute(folder, classes_path, mode, preview_only=True)
             self.preview_results = results
-            self.log.write("[PREVIEW] 仅模拟，不写盘\n")
+            self.log.write("[PREVIEW] 仅预览，不写文件\n")
             self.log.write("\n".join(results["lines"]) + "\n")
         except Exception as e:
             messagebox.showerror("错误", str(e))
@@ -164,15 +166,12 @@ class ReplacePage(tk.Frame):
             dst = int(self.var_dst.get().strip())
             mapping = {src: dst}
             lines.append(f"映射: {src} -> {dst}")
-            if preview_only:
-                results = apply_mapping_to_folder(folder, mapping)
-            else:
-                results = apply_mapping_to_folder(folder, mapping)
-                if classes_path and os.path.exists(classes_path):
-                    classes = read_classes_file(classes_path)
-                    if classes:
-                        new_classes = remap_classes_by_index(classes, mapping)
-                        write_classes_file(classes_path, new_classes)
+            results = apply_mapping_to_folder(folder, mapping)
+            if not preview_only and classes_path and os.path.exists(classes_path):
+                classes = read_classes_file(classes_path)
+                if classes:
+                    new_classes = remap_classes_by_index(classes, mapping)
+                    write_classes_file(classes_path, new_classes)
             lines.extend([f"{r.path}: changed={r.changed_count}" for r in results[:20]])
             lines.append(f"文件数: {len(results)}")
             lines.append(f"修改文件: {sum(1 for r in results if r.modified)}")
@@ -186,7 +185,7 @@ class ReplacePage(tk.Frame):
                 if ids:
                     groups.append(ids)
             if not groups:
-                raise ValueError("请输入有效合并组")
+                raise ValueError("请输入有效的合并组")
             lines.append(f"合并组: {groups}")
             classes = read_classes_file(classes_path) if classes_path else []
             mapping = {}

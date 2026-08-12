@@ -33,12 +33,12 @@ def save_config(config):
 class SidebarItem(tk.Frame):
     def __init__(self, master, text, icon, command):
         theme = get_theme()
-        super().__init__(master, bg=theme["sidebar"], cursor="hand2", highlightthickness=1, highlightbackground=theme["border"])
+        super().__init__(master, bg=theme["bg"], cursor="hand2", highlightthickness=1, highlightbackground=theme["border"], relief="groove")
         self.command = command
         self.active = False
-        self.icon_label = tk.Label(self, text=icon, bg=theme["sidebar"], fg=theme["primary"], font=("Segoe UI Emoji", 12, "bold"), width=2)
+        self.icon_label = tk.Label(self, text=icon, bg=theme["bg"], fg=theme["text"], font=("Segoe UI Symbol", 12, "bold"), width=2)
         self.icon_label.pack(side="left", padx=(14, 8), pady=10)
-        self.text_label = tk.Label(self, text=text, bg=theme["sidebar"], fg=theme["text"], font=(theme["font_family"], 10, "bold"), anchor="w")
+        self.text_label = tk.Label(self, text=text, bg=theme["bg"], fg=theme["text"], font=(theme["font_family"], 10, "bold"), anchor="w")
         self.text_label.pack(side="left", fill="x", expand=True)
         for w in (self, self.icon_label, self.text_label):
             w.bind("<Button-1>", self.on_click)
@@ -46,9 +46,9 @@ class SidebarItem(tk.Frame):
             w.bind("<Leave>", self.on_leave)
 
     def set_active(self, active: bool):
-        theme = get_theme()
         self.active = active
-        color = theme["sidebar_active"] if active else theme["sidebar"]
+        theme = get_theme()
+        color = theme["bg"] if not active else "#e9e9e9"
         self.configure(bg=color)
         self.icon_label.configure(bg=color)
         self.text_label.configure(bg=color)
@@ -57,18 +57,18 @@ class SidebarItem(tk.Frame):
         self.command()
 
     def on_enter(self, event=None):
-        theme = get_theme()
         if not self.active:
-            self.configure(bg=theme["sidebar_hover"])
-            self.icon_label.configure(bg=theme["sidebar_hover"])
-            self.text_label.configure(bg=theme["sidebar_hover"])
+            color = "#f2f2f2"
+            self.configure(bg=color)
+            self.icon_label.configure(bg=color)
+            self.text_label.configure(bg=color)
 
     def on_leave(self, event=None):
-        theme = get_theme()
         if not self.active:
-            self.configure(bg=theme["sidebar"])
-            self.icon_label.configure(bg=theme["sidebar"])
-            self.text_label.configure(bg=theme["sidebar"])
+            theme = get_theme()
+            self.configure(bg=theme["bg"])
+            self.icon_label.configure(bg=theme["bg"])
+            self.text_label.configure(bg=theme["bg"])
 
 
 class HomePage(tk.Frame):
@@ -79,16 +79,26 @@ class HomePage(tk.Frame):
 
     def _build(self):
         theme = get_theme()
-        top = tk.Frame(self, bg=theme["bg"])
+        top = tk.Frame(self, bg=theme["bg"], highlightthickness=1, highlightbackground=theme["border"], relief="groove")
         top.pack(fill="x", padx=24, pady=(20, 12))
-        tk.Label(top, text="YOLO TOOLBOX // NEON CORE", bg=theme["bg"], fg=theme["primary"], font=(theme["font_family"], 18, "bold")).pack(anchor="w")
-        tk.Label(top, text="统一入口，集中处理转换、统计、替换和工具启动", bg=theme["bg"], fg=theme["muted"], font=(theme["font_family"], 10)).pack(anchor="w", pady=(4, 0))
+        tk.Label(top, text="YOLO TOOLBOX", bg=theme["bg"], fg=theme["text"], font=(theme["font_family"], 20, "bold")).pack(anchor="w", padx=18, pady=(16, 0))
+        tk.Label(top, text="统一入口，集中处理转换、统计、替换和工具启动。", bg=theme["bg"], fg=theme["muted"], font=(theme["font_family"], 10)).pack(anchor="w", padx=18, pady=(4, 0))
+
+        stats = tk.Frame(top, bg=theme["bg"])
+        stats.pack(fill="x", padx=18, pady=(12, 16))
+        self._mini_stat(stats, "4", "核心模块").pack(side="left", padx=(0, 10))
+        self._mini_stat(stats, "1", "统一入口").pack(side="left", padx=(0, 10))
+        self._mini_stat(stats, "∞", "批处理").pack(side="left")
 
         body = tk.Frame(self, bg=theme["bg"])
         body.pack(fill="both", expand=True, padx=24, pady=(0, 20))
-        left = self._card(body, "快速开始", "命令入口 / 高频操作")
-        left.pack(side="left", fill="both", expand=True, padx=(0, 10))
-        grid = tk.Frame(left, bg=theme["panel"])
+        body.grid_columnconfigure(0, weight=3)
+        body.grid_columnconfigure(1, weight=2)
+        body.grid_rowconfigure(0, weight=1)
+
+        left = self._card(body, "快速开始", "最常用入口")
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        grid = tk.Frame(left, bg=theme["bg"])
         grid.pack(fill="x", padx=16, pady=(0, 16))
         self._btn(grid, "格式转换", lambda: self.app.show_page("convert")).grid(row=0, column=0, padx=6, pady=6, sticky="ew")
         self._btn(grid, "标注统计", lambda: self.app.show_page("count")).grid(row=0, column=1, padx=6, pady=6, sticky="ew")
@@ -97,27 +107,48 @@ class HomePage(tk.Frame):
         grid.grid_columnconfigure(0, weight=1)
         grid.grid_columnconfigure(1, weight=1)
 
-        right = self._card(body, "控制台说明", "页面状态与输出都尽量可追踪")
-        right.pack(side="left", fill="both", expand=True, padx=(10, 0))
+        right = self._card(body, "使用提示", "当前状态")
+        right.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+        tip_box = tk.Frame(right, bg=theme["bg"])
+        tip_box.pack(fill="both", expand=True, padx=16, pady=(0, 16))
+        tips = [
+            "从左侧选择功能页，再填写参数。",
+            "日志区会显示处理过程和结果摘要。",
+            "默认配色保持系统原生风格，减少干扰。",
+        ]
+        for tip in tips:
+            row = tk.Frame(tip_box, bg=theme["bg"])
+            row.pack(fill="x", pady=6)
+            tk.Label(row, text="•", bg=theme["bg"], fg=theme["text"], font=(theme["font_family"], 12, "bold")).pack(side="left")
+            tk.Label(row, text=tip, bg=theme["bg"], fg=theme["text"], font=(theme["font_family"], 10), wraplength=320, justify="left").pack(side="left", padx=8, fill="x", expand=True)
 
     def _card(self, master, title, subtitle=""):
         theme = get_theme()
-        card = tk.Frame(master, bg=theme["panel"], highlightthickness=1, highlightbackground=theme["border"])
-        head = tk.Frame(card, bg=theme["panel"])
+        card = tk.Frame(master, bg=theme["bg"], highlightthickness=1, highlightbackground=theme["border"], relief="groove")
+        head = tk.Frame(card, bg=theme["bg"])
         head.pack(fill="x", padx=16, pady=(14, 8))
-        tk.Label(head, text=title, bg=theme["panel"], fg=theme["text"], font=(theme["font_family"], 13, "bold")).pack(anchor="w")
+        tk.Label(head, text=title, bg=theme["bg"], fg=theme["text"], font=(theme["font_family"], 13, "bold")).pack(anchor="w")
         if subtitle:
-            tk.Label(head, text=subtitle, bg=theme["panel"], fg=theme["muted"], font=(theme["font_family"], 9)).pack(anchor="w", pady=(4, 0))
+            tk.Label(head, text=subtitle, bg=theme["bg"], fg=theme["muted"], font=(theme["font_family"], 9)).pack(anchor="w", pady=(4, 0))
         return card
+
+    def _mini_stat(self, master, value, label):
+        theme = get_theme()
+        box = tk.Frame(master, bg=theme["bg"], highlightthickness=1, highlightbackground=theme["border"], relief="groove")
+        tk.Label(box, text=value, bg=theme["bg"], fg=theme["text"], font=(theme["font_family"], 16, "bold")).pack(padx=14, pady=(10, 0))
+        tk.Label(box, text=label, bg=theme["bg"], fg=theme["muted"], font=(theme["font_family"], 9)).pack(padx=14, pady=(0, 10))
+        return box
 
     def _btn(self, master, text, command):
         theme = get_theme()
-        f = tk.Frame(master, bg=theme["panel"], highlightthickness=1, highlightbackground=theme["border"], cursor="hand2")
-        inner = tk.Frame(f, bg=theme["panel"])
+        f = tk.Frame(master, bg=theme["bg"], highlightthickness=1, highlightbackground=theme["border"], cursor="hand2", relief="raised")
+        inner = tk.Frame(f, bg=theme["bg"])
         inner.pack(fill="both", expand=True, padx=1, pady=1)
-        tk.Label(inner, text=text, bg=theme["panel"], fg=theme["text"], font=(theme["font_family"], 10, "bold")).pack(fill="x", expand=True, padx=12, pady=10)
+        tk.Label(inner, text=text, bg=theme["bg"], fg=theme["text"], font=(theme["font_family"], 10, "bold")).pack(fill="x", expand=True, padx=12, pady=10)
         for w in (f, inner, *inner.winfo_children()):
             w.bind("<Button-1>", lambda e: command())
+            w.bind("<Enter>", lambda e, widget=f, child=inner: (widget.configure(bg="#f0f0f0"), child.configure(bg="#f0f0f0")))
+            w.bind("<Leave>", lambda e, widget=f, child=inner: (widget.configure(bg=theme["bg"]), child.configure(bg=theme["bg"])))
         return f
 
 
@@ -128,7 +159,7 @@ class MainApp:
         self.root.geometry("1180x760")
         self.root.minsize(1000, 680)
         self.config = load_config()
-        self.theme_name = self.config.get("theme_name", "Ocean")
+        self.theme_name = self.config.get("theme_name", "Default")
         self.theme_override = self.config.get("theme_override")
         set_theme(self.theme_override or THEME_PRESETS.get(self.theme_name, DEFAULT_THEME))
 
@@ -142,7 +173,10 @@ class MainApp:
 
     def _style(self):
         style = ttk.Style()
-        style.theme_use("clam")
+        try:
+            style.theme_use("clam")
+        except Exception:
+            pass
         apply_to_tk(style)
 
     def apply_theme(self, name, persist=True):
@@ -161,7 +195,7 @@ class MainApp:
         if hasattr(self, "content"):
             self.content.configure(bg=theme["bg"])
         if hasattr(self, "sidebar"):
-            self.sidebar.configure(bg=theme["sidebar"])
+            self.sidebar.configure(bg=theme["bg"])
         self._refresh_widget_tree()
         for item in getattr(self, "sidebar_items", {}).values():
             item.set_active(item.active)
@@ -173,6 +207,7 @@ class MainApp:
             for key, value in {
                 "BG": theme["bg"],
                 "PANEL": theme["panel"],
+                "PANEL_ALT": theme["panel_alt"],
                 "SIDEBAR": theme["sidebar"],
                 "SIDEBAR_ACTIVE": theme["sidebar_active"],
                 "SIDEBAR_HOVER": theme["sidebar_hover"],
@@ -189,20 +224,20 @@ class MainApp:
         self.root.grid_rowconfigure(0, weight=1)
         self.root.grid_columnconfigure(1, weight=1)
 
-        self.sidebar = tk.Frame(self.root, bg=theme["sidebar"], width=250, highlightthickness=1, highlightbackground=theme["border"])
+        self.sidebar = tk.Frame(self.root, bg=theme["bg"], width=250, highlightthickness=1, highlightbackground=theme["border"], relief="groove")
         self.sidebar.grid(row=0, column=0, sticky="nsew")
         self.sidebar.grid_propagate(False)
-        brand = tk.Frame(self.sidebar, bg=theme["sidebar"])
+        brand = tk.Frame(self.sidebar, bg=theme["bg"])
         brand.pack(fill="x", pady=(18, 18))
-        tk.Label(brand, text="YOLO TOOLBOX", bg=theme["sidebar"], fg=theme["primary"], font=(theme["font_family"], 16, "bold")).pack(anchor="w", padx=18)
-        tk.Label(brand, text="NEON DATA OPS CONSOLE", bg=theme["sidebar"], fg=theme["muted"], font=(theme["font_family"], 9)).pack(anchor="w", padx=18, pady=(4, 0))
+        tk.Label(brand, text="YOLO TOOLBOX", bg=theme["bg"], fg=theme["text"], font=(theme["font_family"], 16, "bold")).pack(anchor="w", padx=18)
+        tk.Label(brand, text="DATA OPS CONSOLE", bg=theme["bg"], fg=theme["muted"], font=(theme["font_family"], 9)).pack(anchor="w", padx=18, pady=(4, 0))
 
-        nav = tk.Frame(self.sidebar, bg=theme["sidebar"])
+        nav = tk.Frame(self.sidebar, bg=theme["bg"])
         nav.pack(fill="x", pady=(10, 0))
-        items = [("home", "首页", "⌂"), ("convert", "格式转换", "⇄"), ("count", "标注统计", "▣"), ("replace", "类别重整", "✎"), ("tools", "其他工具", "★")]
+        items = [("home", "首页", "⌂"), ("convert", "格式转换", "⇄"), ("count", "标注统计", "≡"), ("replace", "类别替换", "✎"), ("tools", "其他工具", "⚙")]
         for key, text, icon in items:
             item = SidebarItem(nav, text, icon, lambda k=key: self.show_page(k))
-            item.pack(fill="x", pady=2)
+            item.pack(fill="x", pady=2, padx=8)
             self.sidebar_items[key] = item
 
         self.content = tk.Frame(self.root, bg=theme["bg"], highlightthickness=0)
@@ -260,11 +295,11 @@ class MainApp:
                 if isinstance(widget, tk.Tk) or isinstance(widget, tk.Toplevel):
                     widget.configure(bg=theme["bg"])
                 elif cls in ("Frame", "Labelframe"):
-                    widget.configure(bg=theme["bg"] if widget is self.content or widget is self.page_host else theme["panel"])
+                    widget.configure(bg=theme["bg"])
                 elif cls == "Label":
                     widget.configure(bg=widget.master["bg"], fg=theme["text"])
                 elif cls == "Text":
-                    widget.configure(bg="#08111d", fg="#dbeafe", insertbackground="white")
+                    widget.configure(bg="white", fg="black", insertbackground="black")
                 elif cls == "Canvas":
                     widget.configure(bg=theme["bg"])
             except Exception:
@@ -281,11 +316,11 @@ class MainApp:
 
     def _tool_button(self, master, text, command):
         theme = get_theme()
-        btn = tk.Label(master, text=text, bg=theme["panel"], fg=theme["primary"], font=(theme["font_family"], 12, "bold"), width=2, height=1, cursor="hand2", highlightthickness=1, highlightbackground=theme["border"])
+        btn = tk.Label(master, text=text, bg=theme["bg"], fg=theme["text"], font=(theme["font_family"], 12, "bold"), width=2, height=1, cursor="hand2", highlightthickness=1, highlightbackground=theme["border"], relief="raised")
         btn.pack(side="left", padx=4)
         btn.bind("<Button-1>", lambda e: command())
-        btn.bind("<Enter>", lambda e: btn.configure(bg=theme["panel_alt"]))
-        btn.bind("<Leave>", lambda e: btn.configure(bg=theme["panel"]))
+        btn.bind("<Enter>", lambda e: btn.configure(bg="#f0f0f0"))
+        btn.bind("<Leave>", lambda e: btn.configure(bg=theme["bg"]))
         return btn
 
     def open_settings(self):

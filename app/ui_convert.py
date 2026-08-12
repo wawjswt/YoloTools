@@ -12,21 +12,66 @@ from tools.convert import collect_classes, load_class_file, parse_xml
 
 class LogBox(tk.Frame):
     def __init__(self, master, height=16):
-        super().__init__(master, bg=PANEL)
-        self.txt = tk.Text(self, wrap=tk.WORD, height=height, font=("Consolas", 10),
-                           bg="#08111d", fg="#dbeafe", insertbackground="white",
-                           relief="flat", borderwidth=0)
-        self.txt.pack(fill="both", expand=True)
+        super().__init__(master, bg=PANEL, highlightthickness=1, highlightbackground=BORDER, relief="groove")
+        self.status = tk.Frame(self, bg=PANEL)
+        self.status.pack(fill="x", padx=12, pady=(10, 0))
+        self.dot = tk.Label(self.status, text="●", bg=PANEL, fg=PRIMARY, font=("Segoe UI Symbol", 10, "bold"))
+        self.dot.pack(side="left")
+        self.status_text = tk.Label(self.status, text="日志输出", bg=PANEL, fg=MUTED, font=("Microsoft YaHei UI", 9))
+        self.status_text.pack(side="left", padx=(6, 0))
+        body = tk.Frame(self, bg=PANEL)
+        body.pack(fill="both", expand=True, padx=12, pady=12)
+        self.txt = tk.Text(body, wrap=tk.WORD, height=height, font=("Consolas", 10),
+                           bg="white", fg="black", insertbackground="black",
+                           relief="sunken", borderwidth=1, padx=10, pady=10)
+        self.txt.pack(side="left", fill="both", expand=True)
+        scroll = ttk.Scrollbar(body, orient="vertical", command=self.txt.yview)
+        scroll.pack(side="right", fill="y")
+        self.txt.configure(yscrollcommand=scroll.set)
 
     def write(self, s):
         self.txt.insert(tk.END, s)
         self.txt.see(tk.END)
+        self.set_status("输出中", PRIMARY)
 
     def flush(self):
         pass
 
     def clear(self):
         self.txt.delete("1.0", tk.END)
+        self.set_status("已清空", MUTED)
+
+    def set_status(self, text, color=PRIMARY):
+        self.status_text.configure(text=text)
+        self.dot.configure(fg=color)
+
+
+class ToolButton(tk.Frame):
+    def __init__(self, master, text, command, accent=False):
+        theme_bg = "#ececec" if accent else PANEL
+        border = "#7f7f7f" if accent else BORDER
+        super().__init__(master, bg=theme_bg, highlightthickness=1, highlightbackground=border, cursor="hand2", relief="raised")
+        self.command = command
+        self.base_bg = theme_bg
+        self.hover_bg = "#f5f5f5" if accent else "#f0f0f0"
+        self.fg = TEXT
+        self.label = tk.Label(self, text=text, bg=theme_bg, fg=self.fg, font=("Microsoft YaHei UI", 10, "bold"), padx=14, pady=8)
+        self.label.pack(fill="both", expand=True)
+        for w in (self, self.label):
+            w.bind("<Button-1>", self._click)
+            w.bind("<Enter>", self._enter)
+            w.bind("<Leave>", self._leave)
+
+    def _click(self, event=None):
+        self.command()
+
+    def _enter(self, event=None):
+        self.configure(bg=self.hover_bg)
+        self.label.configure(bg=self.hover_bg)
+
+    def _leave(self, event=None):
+        self.configure(bg=self.base_bg)
+        self.label.configure(bg=self.base_bg)
 
 
 class SectionCard(tk.Frame):
