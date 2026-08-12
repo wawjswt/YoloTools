@@ -18,13 +18,17 @@ class CountPage(tk.Frame):
         super().__init__(master, bg=BG)
         self.app = app
         self.stats = None
+        self._hover_annotation = None
+        self._bar_meta = []
+        self._dist_meta = []
+        self._pie_meta = []
         self._build()
 
     def _build(self):
         top = tk.Frame(self, bg=BG)
         top.pack(fill="x", padx=24, pady=(20, 12))
         tk.Label(top, text="标注统计", bg=BG, fg=TEXT, font=("Microsoft YaHei UI", 20, "bold")).pack(anchor="w")
-        tk.Label(top, text="统计类别数量、图片覆盖率、空标注和尺寸分布，并同步生成表格与图表。", bg=BG, fg=MUTED, font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(4, 0))
+        tk.Label(top, text="统计类别数量、图片覆盖率、空标注和尺寸分布，并可将鼠标悬停到图表上查看详细信息。", bg=BG, fg=MUTED, font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(4, 0))
 
         body = tk.Frame(self, bg=BG)
         body.pack(fill="both", expand=True, padx=24, pady=(0, 20))
@@ -85,18 +89,27 @@ class CountPage(tk.Frame):
         self.ax_bar = self.fig.add_subplot(211)
         self.ax_empty = self.fig.add_subplot(212)
         self.chart_canvas = FigureCanvasTkAgg(self.fig, master=self.chart_tab)
-        self.chart_canvas.get_tk_widget().pack(fill="both", expand=True)
+        self.chart_widget = self.chart_canvas.get_tk_widget()
+        self.chart_widget.pack(fill="both", expand=True)
+        self.chart_canvas.mpl_connect("motion_notify_event", self._on_chart_motion)
+        self.chart_canvas.mpl_connect("figure_leave_event", self._hide_hover)
 
         self.fig2 = Figure(figsize=(8, 5), dpi=100)
         self.ax_area = self.fig2.add_subplot(211)
         self.ax_aspect = self.fig2.add_subplot(212)
         self.dist_canvas = FigureCanvasTkAgg(self.fig2, master=self.dist_tab)
-        self.dist_canvas.get_tk_widget().pack(fill="both", expand=True)
+        self.dist_widget = self.dist_canvas.get_tk_widget()
+        self.dist_widget.pack(fill="both", expand=True)
+        self.dist_canvas.mpl_connect("motion_notify_event", self._on_dist_motion)
+        self.dist_canvas.mpl_connect("figure_leave_event", self._hide_hover)
 
         self.fig3 = Figure(figsize=(6, 4), dpi=100)
         self.ax_pie = self.fig3.add_subplot(111)
         self.pie_canvas = FigureCanvasTkAgg(self.fig3, master=self.pie_tab)
-        self.pie_canvas.get_tk_widget().pack(fill="both", expand=True)
+        self.pie_widget = self.pie_canvas.get_tk_widget()
+        self.pie_widget.pack(fill="both", expand=True)
+        self.pie_canvas.mpl_connect("motion_notify_event", self._on_pie_motion)
+        self.pie_canvas.mpl_connect("figure_leave_event", self._hide_hover)
 
     def browse(self):
         p = filedialog.askdirectory(title="选择标注文件夹")
@@ -106,6 +119,9 @@ class CountPage(tk.Frame):
     def clear_results(self):
         self.stats = None
         self.summary_text.delete("1.0", tk.END)
+        self._bar_meta = []
+        self._dist_meta = []
+        self._pie_meta = []
         for item in self.tree.get_children():
             self.tree.delete(item)
         for ax in (self.ax_bar, self.ax_empty, self.ax_area, self.ax_aspect, self.ax_pie):
@@ -113,19 +129,24 @@ class CountPage(tk.Frame):
         self.chart_canvas.draw_idle()
         self.dist_canvas.draw_idle()
         self.pie_canvas.draw_idle()
+        self._hide_hover()
 
     def run(self):
         folder = self.var_folder.get().strip()
         if not folder or not os.path.isdir(folder):
-            messagebox.showerror("错误", "请选择有效的标注文件夹")
+            messagebox.showerror("错误", "请选择有效的标注文件夹。")
             return
+
+        self.app.set_status("统计中", folder, "info")
 
         def task():
             try:
                 stats = analyze_folder(folder)
                 self.after(0, lambda: self.render_stats(stats))
+                self.after(0, lambda: self.app.set_status("统计完成", f"共 {stats.total_images} 张图片", "success"))
             except Exception as e:
                 self.after(0, lambda: messagebox.showerror("错误", str(e)))
+                self.after(0, lambda msg=str(e): self.app.set_status("统计失败", msg, "error"))
 
         threading.Thread(target=task, daemon=True).start()
 
@@ -138,7 +159,7 @@ class CountPage(tk.Frame):
             f"有标注图片数: {stats.labeled_images}",
             f"空标注图片数: {stats.empty_images}",
             f"总框数: {stats.total_boxes}",
-            f"每张图平均框数: {stats.avg_boxes_per_image:.4f}",
+            f"平均每图框数: {stats.avg_boxes_per_image:.4f}",
             f"小目标: {stats.small_count}",
             f"中目标: {stats.medium_count}",
             f"大目标: {stats.large_count}",
@@ -160,16 +181,23 @@ class CountPage(tk.Frame):
     def _draw_bar(self, stats):
         self.ax_bar.clear()
         self.ax_empty.clear()
+        self._bar_meta = []
 
         class_ids = [str(x.class_id) for x in stats.class_stats]
         instances = [x.instance_count for x in stats.class_stats]
-        self.ax_bar.bar(class_ids, instances, color="#2563eb")
+        bars = self.ax_bar.bar(class_ids, instances, color="#2563eb")
         self.ax_bar.set_title("各类别实例数")
         self.ax_bar.set_ylabel("Instances")
         self.ax_bar.tick_params(axis="x", rotation=45)
+        for item in stats.class_stats:
+            self._bar_meta.append({"label": f"类别 {item.class_id}", "value": item.instance_count, "extra": f"图片数 {item.image_count}"})
 
         self.ax_empty.bar(["空标注", "有标注"], [stats.empty_images, stats.labeled_images], color=["#ef4444", "#10b981"])
         self.ax_empty.set_title("空标注图片 vs 有标注图片")
+        self._bar_meta.extend([
+            {"label": "空标注图片", "value": stats.empty_images, "extra": f"总图片数 {stats.total_images}"},
+            {"label": "有标注图片", "value": stats.labeled_images, "extra": f"总图片数 {stats.total_images}"},
+        ])
 
         self.fig.tight_layout()
         self.chart_canvas.draw_idle()
@@ -177,6 +205,7 @@ class CountPage(tk.Frame):
     def _draw_dist(self, stats):
         self.ax_area.clear()
         self.ax_aspect.clear()
+        self._dist_meta = []
 
         area_keys = list(stats.area_bins.keys())
         area_vals = list(stats.area_bins.values())
@@ -184,28 +213,128 @@ class CountPage(tk.Frame):
         aspect_vals = list(stats.aspect_ratio_bins.values())
 
         self.ax_area.bar(area_keys, area_vals, color="#0ea5e9")
-        self.ax_area.set_title("框面积分布")
+        self.ax_area.set_title("面积分布")
         self.ax_area.tick_params(axis="x", rotation=30)
+        for key, value in zip(area_keys, area_vals):
+            self._dist_meta.append({"label": key, "value": value})
 
         self.ax_aspect.bar(aspect_keys, aspect_vals, color="#f59e0b")
         self.ax_aspect.set_title("宽高比分布")
         self.ax_aspect.tick_params(axis="x", rotation=30)
+        for key, value in zip(aspect_keys, aspect_vals):
+            self._dist_meta.append({"label": key, "value": value})
 
         self.fig2.tight_layout()
         self.dist_canvas.draw_idle()
 
     def _draw_pie(self, stats):
         self.ax_pie.clear()
-        labels = ["小目标", "中目标", "大目标"]
-        values = [stats.small_count, stats.medium_count, stats.large_count]
+        self._pie_meta = [
+            {"label": "小目标", "value": stats.small_count},
+            {"label": "中目标", "value": stats.medium_count},
+            {"label": "大目标", "value": stats.large_count},
+        ]
+        labels = [item["label"] for item in self._pie_meta]
+        values = [item["value"] for item in self._pie_meta]
         self.ax_pie.pie(values, labels=labels, autopct="%1.1f%%", startangle=90)
         self.ax_pie.set_title("小中大目标比例")
         self.fig3.tight_layout()
         self.pie_canvas.draw_idle()
 
+    def _show_hover(self, title, lines, x=20, y=20):
+        if self._hover_annotation is not None:
+            try:
+                self._hover_annotation.destroy()
+            except Exception:
+                pass
+            self._hover_annotation = None
+        popup = tk.Toplevel(self)
+        popup.overrideredirect(True)
+        popup.attributes("-topmost", True)
+        popup.configure(bg="#111827")
+        popup.geometry(f"260x120+{self.winfo_rootx() + x}+{self.winfo_rooty() + y}")
+        frame = tk.Frame(popup, bg="#111827", highlightthickness=1, highlightbackground="#374151")
+        frame.pack(fill="both", expand=True)
+        tk.Label(frame, text=title, bg="#111827", fg="#f9fafb", font=("Microsoft YaHei UI", 10, "bold"), anchor="w").pack(fill="x", padx=10, pady=(8, 4))
+        for line in lines:
+            tk.Label(frame, text=line, bg="#111827", fg="#d1d5db", font=("Microsoft YaHei UI", 9), anchor="w", justify="left").pack(fill="x", padx=10)
+        self._hover_annotation = popup
+
+    def _hide_hover(self, event=None):
+        if self._hover_annotation is not None:
+            try:
+                self._hover_annotation.destroy()
+            except Exception:
+                pass
+            self._hover_annotation = None
+
+    def _closest_bar_index(self, axes, event):
+        if event.inaxes != axes or event.xdata is None:
+            return None
+        positions = [patch.get_x() + patch.get_width() / 2 for patch in axes.patches]
+        if not positions:
+            return None
+        return min(range(len(positions)), key=lambda i: abs(positions[i] - event.xdata))
+
+    def _on_chart_motion(self, event):
+        if event.inaxes not in (self.ax_bar, self.ax_empty):
+            self._hide_hover()
+            return
+        idx = self._closest_bar_index(self.ax_bar, event)
+        if idx is None:
+            idx = self._closest_bar_index(self.ax_empty, event)
+            if idx is None:
+                self._hide_hover()
+                return
+            meta_index = len(self.ax_bar.patches) + idx
+        else:
+            meta_index = idx
+        if meta_index >= len(self._bar_meta):
+            self._hide_hover()
+            return
+        meta = self._bar_meta[meta_index]
+        self._show_hover(meta["label"], [f"数值: {meta['value']}", meta.get("extra", "")], 24, 24)
+
+    def _on_dist_motion(self, event):
+        if event.inaxes not in (self.ax_area, self.ax_aspect):
+            self._hide_hover()
+            return
+        idx = self._closest_bar_index(self.ax_area, event)
+        if idx is None:
+            idx = self._closest_bar_index(self.ax_aspect, event)
+            if idx is None:
+                self._hide_hover()
+                return
+            meta_index = len(self.ax_area.patches) + idx
+        else:
+            meta_index = idx
+        if meta_index >= len(self._dist_meta):
+            self._hide_hover()
+            return
+        meta = self._dist_meta[meta_index]
+        self._show_hover(meta["label"], [f"数量: {meta['value']}"])
+
+    def _on_pie_motion(self, event):
+        if event.inaxes != self.ax_pie or not self._pie_meta:
+            self._hide_hover()
+            return
+        wedge_index = None
+        for i, wedge in enumerate(self.ax_pie.patches):
+            contains, _ = wedge.contains(event)
+            if contains:
+                wedge_index = i
+                break
+        if wedge_index is None or wedge_index >= len(self._pie_meta):
+            self._hide_hover()
+            return
+        meta = self._pie_meta[wedge_index]
+        total = sum(item["value"] for item in self._pie_meta) or 1
+        percent = meta["value"] / total * 100
+        self._show_hover(meta["label"], [f"数量: {meta['value']}", f"占比: {percent:.1f}%"], 24, 24)
+
     def export_csv(self):
         if not self.stats:
-            messagebox.showwarning("提示", "请先统计")
+            messagebox.showwarning("提示", "请先统计。")
             return
         path = filedialog.asksaveasfilename(title="导出 CSV", defaultextension=".csv", filetypes=[("CSV", "*.csv")])
         if not path:
@@ -215,7 +344,7 @@ class CountPage(tk.Frame):
 
     def export_excel(self):
         if not self.stats:
-            messagebox.showwarning("提示", "请先统计")
+            messagebox.showwarning("提示", "请先统计。")
             return
         path = filedialog.asksaveasfilename(title="导出 Excel", defaultextension=".xlsx", filetypes=[("Excel", "*.xlsx")])
         if not path:

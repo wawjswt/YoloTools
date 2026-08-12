@@ -167,6 +167,9 @@ class MainApp:
 
         self.sidebar_items = {}
         self.pages = {}
+        self.status_var = tk.StringVar(value="就绪")
+        self.status_detail_var = tk.StringVar(value="等待操作")
+        self.status_kind = "idle"
 
         self._style()
         self._layout()
@@ -264,6 +267,16 @@ class MainApp:
         self._tool_button(self._top_actions, "⚙", self.open_settings)
         self._tool_button(self._top_actions, "×", self.close_app)
 
+        self.status_bar = tk.Frame(self.root, bg=theme["bg"], highlightthickness=1, highlightbackground=theme["border"], relief="groove")
+        self.status_bar.grid(row=1, column=0, columnspan=2, sticky="ew")
+        self.status_bar.grid_columnconfigure(1, weight=1)
+        self.status_dot = tk.Label(self.status_bar, text="●", bg=theme["bg"], fg=theme["muted"], font=(theme["font_family"], 10, "bold"))
+        self.status_dot.grid(row=0, column=0, padx=(12, 6), pady=8, sticky="w")
+        self.status_text = tk.Label(self.status_bar, textvariable=self.status_var, bg=theme["bg"], fg=theme["text"], font=(theme["font_family"], 10, "bold"), anchor="w")
+        self.status_text.grid(row=0, column=1, padx=4, pady=8, sticky="ew")
+        self.status_detail = tk.Label(self.status_bar, textvariable=self.status_detail_var, bg=theme["bg"], fg=theme["muted"], font=(theme["font_family"], 9), anchor="e")
+        self.status_detail.grid(row=0, column=2, padx=(4, 12), pady=8, sticky="e")
+
     def _refresh_pages(self):
         for page in self.pages.values():
             page.configure(bg=get_theme()["bg"])
@@ -315,6 +328,24 @@ class MainApp:
         self.pages[key].lift()
         for name, item in self.sidebar_items.items():
             item.set_active(name == key)
+
+    def set_status(self, text, detail="", kind="info"):
+        self.status_var.set(text)
+        self.status_detail_var.set(detail)
+        self.status_kind = kind
+        theme = get_theme()
+        color_map = {
+            "idle": theme["muted"],
+            "info": theme["primary"],
+            "success": theme.get("success", theme["primary"]),
+            "warning": theme.get("warning", "#d98b18"),
+            "error": theme.get("danger", "#c00000"),
+        }
+        if hasattr(self, "status_dot"):
+            self.status_dot.configure(fg=color_map.get(kind, theme["primary"]))
+
+    def clear_status(self):
+        self.set_status("就绪", "等待操作", "idle")
 
     def _tool_button(self, master, text, command):
         theme = get_theme()

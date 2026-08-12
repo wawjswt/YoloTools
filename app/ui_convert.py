@@ -7,7 +7,7 @@ from tkinter import filedialog, messagebox, ttk
 from .theme import *
 from .ui_strings import STRINGS
 from tools.conversion_service import convert_file
-from tools.convert import collect_classes, load_class_file, parse_xml
+from tools.convert import collect_classes, parse_xml
 
 
 class LogBox(tk.Frame):
@@ -21,9 +21,19 @@ class LogBox(tk.Frame):
         self.status_text.pack(side="left", padx=(6, 0))
         body = tk.Frame(self, bg=PANEL)
         body.pack(fill="both", expand=True, padx=12, pady=12)
-        self.txt = tk.Text(body, wrap=tk.WORD, height=height, font=("Consolas", 10),
-                           bg="white", fg="black", insertbackground="black",
-                           relief="sunken", borderwidth=1, padx=10, pady=10)
+        self.txt = tk.Text(
+            body,
+            wrap=tk.WORD,
+            height=height,
+            font=("Consolas", 10),
+            bg="white",
+            fg="black",
+            insertbackground="black",
+            relief="sunken",
+            borderwidth=1,
+            padx=10,
+            pady=10,
+        )
         self.txt.pack(side="left", fill="both", expand=True)
         scroll = ttk.Scrollbar(body, orient="vertical", command=self.txt.yview)
         scroll.pack(side="right", fill="y")
@@ -96,7 +106,7 @@ class ConvertPage(tk.Frame):
         top = tk.Frame(self, bg=BG)
         top.pack(fill="x", padx=24, pady=(20, 12))
         tk.Label(top, text=STRINGS["convert_title"], bg=BG, fg=TEXT, font=("Microsoft YaHei UI", 20, "bold")).pack(anchor="w")
-        tk.Label(top, text="支持单文件与批量目录，输出带详细日志、转换摘要和类别信息。", bg=BG, fg=MUTED, font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(4, 0))
+        tk.Label(top, text="支持单文件与批量目录，输出详细日志、转换摘要和类别信息。", bg=BG, fg=MUTED, font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(4, 0))
 
         body = tk.Frame(self, bg=BG)
         body.pack(fill="both", expand=True, padx=24, pady=(0, 20))
@@ -170,18 +180,26 @@ class ConvertPage(tk.Frame):
 
     def run(self):
         input_path = self.var_input.get().strip()
-        if not input_path or not os.path.exists(input_path):
-            messagebox.showerror("错误", STRINGS["convert_missing_input"])
+        if not input_path:
+            messagebox.showerror("错误", "请输入输入路径。")
+            return
+        if not os.path.exists(input_path):
+            messagebox.showerror("错误", f"输入路径不存在：{input_path}")
             return
 
         src = self.var_source_format.get()
         dst = self.var_target_format.get()
+        if src == dst:
+            messagebox.showwarning("提示", "源格式和目标格式相同，请重新选择。")
+            return
+
         self.log.clear()
         old_stdout = os.sys.stdout
         os.sys.stdout = self.log
         self.log.write(f"[INFO] src={src} dst={dst}\n")
         self.log.write(f"[INFO] input={input_path}\n")
         self.log.write(f"[INFO] mode={self.var_input_mode.get()} out={self.var_output.get().strip() or '(default)'}\n")
+        self.app.set_status("转换中", f"{src} -> {dst}", "info")
 
         def task():
             try:
@@ -192,7 +210,7 @@ class ConvertPage(tk.Frame):
                     print(f"已加载类别文件: {classes_file}")
                 outputs = convert_file(src, dst, input_path, out_dir, classes_file)
                 if not outputs:
-                    print("未生成任何输出文件")
+                    print("未生成任何输出文件。")
                 else:
                     print(f"完成，输出 {len(outputs)} 个文件")
                     for item in outputs[:20]:
@@ -212,8 +230,10 @@ class ConvertPage(tk.Frame):
                             f.write("\n".join(class_list))
                         print(f"类别已保存到: {save_classes}")
                         print(f"类别数: {len(class_list)}")
+                self.after(0, lambda count=len(outputs): self.app.set_status("转换完成", f"输出 {count} 个文件", "success"))
             except Exception as e:
                 print(f"\n[错误] {e}")
+                self.after(0, lambda msg=str(e): self.app.set_status("转换失败", msg, "error"))
             finally:
                 os.sys.stdout = old_stdout
 
