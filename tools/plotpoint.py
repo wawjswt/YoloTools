@@ -24,13 +24,13 @@ class PointPicker:
         self.orig_image = None
         self.photo = None
         self.image_id = None
-        self.overlay_ids = []
         self.points = []
         self.closed = False
         self.dragging = False
         self.active_index = None
-        self.status_text = tk.StringVar(value="请先加载图片，然后点击画布添加点位。")
+        self.status_text = tk.StringVar(value="可先直接在空白画布上点位，也可先加载图片后再拾点。")
         self.export_path = None
+        self.free_draw = True
 
         self._build_ui()
         self._bind_events()
@@ -46,8 +46,20 @@ class PointPicker:
 
         title_box = tk.Frame(toolbar, bg="#f3f4f6")
         title_box.grid(row=0, column=0, sticky="w", padx=16, pady=8)
-        tk.Label(title_box, text="封闭图形点位拾取", bg="#f3f4f6", fg="#111827", font=("Microsoft YaHei UI", 14, "bold")).pack(anchor="w")
-        tk.Label(title_box, text="加载图片后，在画布中按顺序点击顶点，支持撤销、拖动、闭合和导出。", bg="#f3f4f6", fg="#6b7280", font=("Microsoft YaHei UI", 9)).pack(anchor="w")
+        tk.Label(
+            title_box,
+            text="封闭图形点位拾取",
+            bg="#f3f4f6",
+            fg="#111827",
+            font=("Microsoft YaHei UI", 14, "bold"),
+        ).pack(anchor="w")
+        tk.Label(
+            title_box,
+            text="支持无图直接拾点，也支持加载图片后按顺序标注、拖动、闭合和导出。",
+            bg="#f3f4f6",
+            fg="#6b7280",
+            font=("Microsoft YaHei UI", 9),
+        ).pack(anchor="w")
 
         action_box = tk.Frame(toolbar, bg="#f3f4f6")
         action_box.grid(row=0, column=1, sticky="e", padx=12)
@@ -72,8 +84,20 @@ class PointPicker:
 
         head = tk.Frame(side, bg="#ffffff")
         head.grid(row=0, column=0, sticky="ew", padx=14, pady=(14, 8))
-        tk.Label(head, text="点位列表", bg="#ffffff", fg="#111827", font=("Microsoft YaHei UI", 12, "bold")).pack(anchor="w")
-        tk.Label(head, text="点击条目可选中，拖动画布上的点可微调位置。", bg="#ffffff", fg="#6b7280", font=("Microsoft YaHei UI", 9)).pack(anchor="w", pady=(4, 0))
+        tk.Label(
+            head,
+            text="点位列表",
+            bg="#ffffff",
+            fg="#111827",
+            font=("Microsoft YaHei UI", 12, "bold"),
+        ).pack(anchor="w")
+        tk.Label(
+            head,
+            text="点击条目可选中，拖动画布上的点可微调位置。",
+            bg="#ffffff",
+            fg="#6b7280",
+            font=("Microsoft YaHei UI", 9),
+        ).pack(anchor="w", pady=(4, 0))
 
         list_frame = tk.Frame(side, bg="#ffffff")
         list_frame.grid(row=1, column=0, sticky="ew", padx=14)
@@ -86,22 +110,57 @@ class PointPicker:
         info = tk.Frame(side, bg="#f9fafb", highlightthickness=1, highlightbackground="#e5e7eb")
         info.grid(row=2, column=0, sticky="nsew", padx=14, pady=14)
         info.grid_columnconfigure(0, weight=1)
-        tk.Label(info, text="操作说明", bg="#f9fafb", fg="#111827", font=("Microsoft YaHei UI", 11, "bold")).pack(anchor="w", padx=12, pady=(10, 4))
+        tk.Label(
+            info,
+            text="操作说明",
+            bg="#f9fafb",
+            fg="#111827",
+            font=("Microsoft YaHei UI", 11, "bold"),
+        ).pack(anchor="w", padx=12, pady=(10, 4))
         tips = [
-            "1. 先点击“加载图片”选择底图。",
-            "2. 在图像上依次点击顶点，至少 3 个点才能闭合。",
-            "3. 按 Enter / Space 完成闭合，Esc 清空闭合状态。",
-            "4. 可在列表中选中点位后使用撤销，或拖动画布上的点微调。",
-            "5. 导出后可得到 JSON / TXT 两种格式。"
+            "1. 你可以不加载图片，直接在黑色画布上点位。",
+            "2. 加载图片后，点位会按图片比例映射到画布上。",
+            "3. 按 Enter / Space 完成闭合，Esc 清空，Delete 撤销最后一点。",
+            "4. 列表中可选中点位，双击可快速定位该点。",
+            "5. 导出时会同时保留 x1,y1,x2,y2... 平滑列表和点集列表。",
         ]
         for tip in tips:
-            tk.Label(info, text=tip, bg="#f9fafb", fg="#374151", justify="left", anchor="w", wraplength=260, font=("Microsoft YaHei UI", 9)).pack(anchor="w", padx=12, pady=2)
+            tk.Label(
+                info,
+                text=tip,
+                bg="#f9fafb",
+                fg="#374151",
+                justify="left",
+                anchor="w",
+                wraplength=260,
+                font=("Microsoft YaHei UI", 9),
+            ).pack(anchor="w", padx=12, pady=2)
 
-        status_bar = tk.Label(self.root, textvariable=self.status_text, anchor="w", bg="#1f2937", fg="#f9fafb", padx=12, pady=8)
+        status_bar = tk.Label(
+            self.root,
+            textvariable=self.status_text,
+            anchor="w",
+            bg="#1f2937",
+            fg="#f9fafb",
+            padx=12,
+            pady=8,
+        )
         status_bar.grid(row=2, column=0, columnspan=2, sticky="ew")
 
     def _button(self, master, text, command):
-        return tk.Button(master, text=text, command=command, bg="#2563eb", fg="white", activebackground="#1d4ed8", activeforeground="white", relief="flat", padx=12, pady=6, cursor="hand2")
+        return tk.Button(
+            master,
+            text=text,
+            command=command,
+            bg="#2563eb",
+            fg="white",
+            activebackground="#1d4ed8",
+            activeforeground="white",
+            relief="flat",
+            padx=12,
+            pady=6,
+            cursor="hand2",
+        )
 
     def _bind_events(self):
         self.canvas.bind("<Button-1>", self.on_canvas_click)
@@ -148,6 +207,8 @@ class PointPicker:
         return PointRecord(nx, ny)
 
     def _in_image_bounds(self, x, y):
+        if self.orig_image is None:
+            return True
         off_x, off_y, disp_w, disp_h = self._display_rect()
         return off_x <= x <= off_x + disp_w and off_y <= y <= off_y + disp_h
 
@@ -172,7 +233,7 @@ class PointPicker:
             self.photo = None
             self.image_id = None
 
-        if len(self.points) < 1:
+        if not self.points:
             return
 
         coords = [self._point_to_canvas(p) for p in self.points]
@@ -184,12 +245,10 @@ class PointPicker:
         for idx, (x, y) in enumerate(coords):
             r = 5 if idx != self.active_index else 7
             fill = "#111827" if idx != self.active_index else "#ef4444"
-            outline = "#ffffff"
-            self.canvas.create_oval(x - r, y - r, x + r, y + r, fill=fill, outline=outline, width=2)
+            self.canvas.create_oval(x - r, y - r, x + r, y + r, fill=fill, outline="#ffffff", width=2)
             self.canvas.create_text(x + 12, y - 10, text=str(idx + 1), fill="#ffffff", font=("Microsoft YaHei UI", 9, "bold"), anchor="w")
 
-        if self.points:
-            self._set_status(f"已添加 {len(self.points)} 个点，{'已闭合' if self.closed else '未闭合'}。")
+        self._set_status(f"已添加 {len(self.points)} 个点，{'已闭合' if self.closed else '未闭合'}。")
 
     def load_image(self):
         path = filedialog.askopenfilename(
@@ -244,10 +303,6 @@ class PointPicker:
         self._set_status("已闭合图形。" if self.closed else "已取消闭合。")
 
     def on_canvas_click(self, event):
-        if self.orig_image is None:
-            self._set_status("请先加载图片，再开始拾取点位。")
-            return
-
         idx = self._hit_test_point(event.x, event.y)
         if idx is not None:
             self.active_index = idx
@@ -257,7 +312,7 @@ class PointPicker:
             return
 
         if not self._in_image_bounds(event.x, event.y):
-            self._set_status("请在图片范围内点击添加点位。")
+            self._set_status("请在画布范围内点击添加点位。")
             return
 
         point = self._canvas_to_point(event.x, event.y)
@@ -276,7 +331,7 @@ class PointPicker:
         return None
 
     def on_canvas_drag(self, event):
-        if self.active_index is None or self.orig_image is None:
+        if self.active_index is None:
             return
         if not self._in_image_bounds(event.x, event.y):
             return
@@ -318,6 +373,12 @@ class PointPicker:
     def get_points_as_list(self):
         return [[round(p.x_norm, 6), round(p.y_norm, 6)] for p in self.points]
 
+    def get_smooth_flat_coords(self):
+        coords = []
+        for p in self.points:
+            coords.extend([round(p.x_norm, 6), round(p.y_norm, 6)])
+        return coords
+
     def export_points(self):
         if len(self.points) < 3:
             self._set_status("至少需要 3 个点才能导出。")
@@ -337,17 +398,24 @@ class PointPicker:
         if not path:
             return
 
-        coords = self.get_points_as_list()
+        point_pairs = self.get_points_as_list()
+        smooth_flat = self.get_smooth_flat_coords()
         out_path = Path(path)
         try:
             if out_path.suffix.lower() == ".txt":
-                text = "\n".join(f"{x:.6f}, {y:.6f}" for x, y in coords)
-                out_path.write_text(text, encoding="utf-8")
+                lines = [
+                    "smooth=" + ", ".join(f"{v:.6f}" for v in smooth_flat),
+                    "pairs=" + " | ".join(f"({x:.6f}, {y:.6f})" for x, y in point_pairs),
+                ]
+                out_path.write_text("\n".join(lines), encoding="utf-8")
             else:
                 payload = {
                     "image": str(self.image_path) if self.image_path else "",
                     "closed": self.closed,
-                    "points": coords,
+                    "points": point_pairs,
+                    "smooth": smooth_flat,
+                    "flat_xy": smooth_flat,
+                    "x1y1x2y2": smooth_flat,
                 }
                 out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception as exc:
