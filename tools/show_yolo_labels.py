@@ -78,6 +78,7 @@ class YOLOEditor:
         self.current_image_bgr = None
         self.current_labels = []
         self.modified = False
+        self.status_message = "就绪"
         
         # 撤销与重做历史栈
         self.undo_stack = []
@@ -86,6 +87,9 @@ class YOLOEditor:
 
         # 视图缩放标记
         self.is_new_image = True
+        self.view_state_cache = {}
+        self.remember_view_state = tk.BooleanVar(value=True)
+        self.auto_save_on_nav = tk.BooleanVar(value=False)
 
         # 交互模式
         self.mode = 'view'
@@ -137,11 +141,19 @@ class YOLOEditor:
     def setup_styles(self):
         style = ttk.Style()
         style.theme_use('clam')
-        style.configure('TButton', font=('微软雅黑', 9), padding=6)
-        style.configure('TLabel', font=('微软雅黑', 9))
-        style.configure('TEntry', font=('微软雅黑', 9))
-        style.configure('TLabelframe.Label', font=('微软雅黑', 10, 'bold'))
-        style.configure('Accent.TButton', background='#0078d7', foreground='white')
+        base_font = ('Microsoft YaHei UI', 9)
+        title_font = ('Microsoft YaHei UI', 10, 'bold')
+        style.configure('TButton', font=base_font, padding=(10, 6), background='#e9eef5', foreground='#1f2937')
+        style.map('TButton', background=[('active', '#d9e5f5'), ('pressed', '#c7d7ec')])
+        style.configure('TLabel', font=base_font, background='#eef3f9', foreground='#1f2937')
+        style.configure('TEntry', font=base_font, padding=4)
+        style.configure('TCheckbutton', font=base_font, background='#f5f8fc', foreground='#1f2937')
+        style.configure('TRadiobutton', font=base_font, background='#f5f8fc', foreground='#1f2937')
+        style.configure('TLabelframe', background='#f5f8fc', borderwidth=1, relief='solid')
+        style.configure('TLabelframe.Label', font=title_font, foreground='#16324f', background='#f5f8fc')
+        style.configure('Accent.TButton', background='#1f6feb', foreground='white')
+        style.map('Accent.TButton', background=[('active', '#1857c4'), ('pressed', '#174ea6')])
+        style.configure('TFrame', background='#eef3f9')
 
     def create_menu(self):
         menubar = tk.Menu(self.master)
@@ -169,8 +181,9 @@ class YOLOEditor:
         help_menu.add_command(label="快捷键说明", command=self.show_shortcuts)
 
     def create_widgets(self):
+        self.master.configure(bg='#eef3f9')
         main_paned = ttk.PanedWindow(self.master, orient=tk.HORIZONTAL)
-        main_paned.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        main_paned.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
 
         left_frame = ttk.Frame(main_paned)
         right_frame = ttk.Frame(main_paned, width=340)
@@ -178,7 +191,7 @@ class YOLOEditor:
         main_paned.add(left_frame, weight=4)
         main_paned.add(right_frame, weight=1)
 
-        self.fig = Figure(figsize=(8, 6), dpi=100, facecolor='#2a2a2a')
+        self.fig = Figure(figsize=(8, 6), dpi=100, facecolor='#101827')
         self.fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
         self.ax = self.fig.add_subplot(111)
         self.ax.axis('off')
@@ -212,19 +225,27 @@ class YOLOEditor:
         ttk.Radiobutton(mode_frame, text="选择/移动(E)", variable=self.mode_var, value='select',
                         command=self.set_mode).pack(side=tk.LEFT, padx=5)
 
-        action_frame = ttk.Frame(right_frame)
-        action_frame.pack(fill=tk.X, pady=5)
+        action_frame = ttk.LabelFrame(right_frame, text="标签操作", padding=8)
+        action_frame.pack(fill=tk.X, pady=(0, 8))
         ttk.Button(action_frame, text="删除选中框 (R)", command=self.delete_selected).pack(side=tk.LEFT, padx=2, expand=True, fill=tk.X)
         ttk.Button(action_frame, text="修改类别 (T)", command=self.modify_class).pack(side=tk.LEFT, padx=2, expand=True, fill=tk.X)
 
-        undo_redo_frame = ttk.Frame(right_frame)
-        undo_redo_frame.pack(fill=tk.X, pady=2)
+        undo_redo_frame = ttk.LabelFrame(right_frame, text="撤销 / 重做", padding=8)
+        undo_redo_frame.pack(fill=tk.X, pady=(0, 8))
         ttk.Button(undo_redo_frame, text="撤销 (Ctrl+Z)", command=self.undo).pack(side=tk.LEFT, padx=2, expand=True, fill=tk.X)
         ttk.Button(undo_redo_frame, text="重做 (Ctrl+Y)", command=self.redo).pack(side=tk.LEFT, padx=2, expand=True, fill=tk.X)
 
-        save_btn_frame = ttk.Frame(right_frame)
-        save_btn_frame.pack(fill=tk.X, pady=5)
+        save_btn_frame = ttk.LabelFrame(right_frame, text="保存", padding=8)
+        save_btn_frame.pack(fill=tk.X, pady=(0, 8))
         ttk.Button(save_btn_frame, text="保存标注 (覆盖txt)", command=self.save_current_labels, style='Accent.TButton').pack(fill=tk.X)
+
+        view_frame = ttk.LabelFrame(right_frame, text="视图优化", padding=5)
+        view_frame.pack(fill=tk.X, pady=5)
+        ttk.Checkbutton(view_frame, text="记忆每张图片视图", variable=self.remember_view_state,
+                        command=self.toggle_remember_view_state).pack(anchor='w')
+        ttk.Checkbutton(view_frame, text="切换时自动保存", variable=self.auto_save_on_nav).pack(anchor='w')
+        ttk.Button(view_frame, text="重置视图", command=self.reset_view).pack(fill=tk.X, pady=(4, 0))
+        ttk.Button(view_frame, text="适配窗口", command=self.fit_to_window).pack(fill=tk.X, pady=(4, 0))
 
         list_frame = ttk.LabelFrame(right_frame, text="图片列表", padding=5)
         list_frame.pack(fill=tk.BOTH, expand=True, pady=5)
@@ -244,12 +265,22 @@ class YOLOEditor:
         self.listbox.bind('<Double-Button-1>', self.on_listbox_double_click)
 
         nav_frame = ttk.Frame(right_frame)
-        nav_frame.pack(fill=tk.X, pady=5)
+        nav_frame.pack(fill=tk.X, pady=(0, 8))
         ttk.Button(nav_frame, text="◀ 上一张 (A)", command=self.prev_image).pack(side=tk.LEFT, padx=2, expand=True, fill=tk.X)
         ttk.Button(nav_frame, text="下一张 (D) ▶", command=self.next_image).pack(side=tk.LEFT, padx=2, expand=True, fill=tk.X)
 
-        self.status_label = ttk.Label(right_frame, text="就绪", relief='sunken', anchor='w', padding=5)
-        self.status_label.pack(fill=tk.X, pady=(10,0))
+        status_frame = ttk.LabelFrame(right_frame, text="状态栏", padding=6)
+        status_frame.pack(fill=tk.X, pady=(10, 0))
+        self.status_image = ttk.Label(status_frame, text="图片: -", anchor='w')
+        self.status_image.pack(fill=tk.X)
+        self.status_label_count = ttk.Label(status_frame, text="标签数: -", anchor='w')
+        self.status_label_count.pack(fill=tk.X)
+        self.status_zoom = ttk.Label(status_frame, text="缩放: -", anchor='w')
+        self.status_zoom.pack(fill=tk.X)
+        self.status_modified = ttk.Label(status_frame, text="已修改: -", anchor='w')
+        self.status_modified.pack(fill=tk.X)
+        self.status_label = ttk.Label(status_frame, text="状态: 就绪", relief='sunken', anchor='w', padding=5)
+        self.status_label.pack(fill=tk.X, pady=(6, 0))
 
     def setup_matplotlib_events(self):
         self.cid_press = self.fig.canvas.mpl_connect('button_press_event', self.on_press)
@@ -307,6 +338,160 @@ class YOLOEditor:
         tip.bind('<Button-1>', close_noti)
         
         self.noti_win.focus_set()
+
+    def ask_yes_no(self, title, message):
+        return messagebox.askyesno(title, message, parent=self.master)
+
+    def ask_ok_cancel(self, title, message):
+        return messagebox.askokcancel(title, message, parent=self.master)
+
+    def show_info(self, title, message):
+        return messagebox.showinfo(title, message, parent=self.master)
+
+    def show_warning(self, title, message):
+        return messagebox.showwarning(title, message, parent=self.master)
+
+    def show_error(self, title, message):
+        return messagebox.showerror(title, message, parent=self.master)
+
+    def ask_integer(self, title, message, **kwargs):
+        kwargs.setdefault("parent", self.master)
+        return simpledialog.askinteger(title, message, **kwargs)
+
+
+    def set_status_message(self, message, color='black'):
+        self.status_message = message
+        self.status_label.config(text=f"状态: {message}", foreground=color)
+
+    def update_status_panel(self):
+        if self.current_image_bgr is None or not self.image_files:
+            self.status_image.config(text="图片: -")
+            self.status_label_count.config(text="标签数: -")
+            self.status_zoom.config(text="缩放: -")
+            self.status_modified.config(text="已修改: -")
+            return
+        self.status_image.config(text=f"图片: {self.image_files[self.current_idx]}")
+        self.status_label_count.config(text=f"标签数: {len(self.current_labels)}")
+        self.status_zoom.config(text=f"缩放: {self.get_zoom_text()}")
+        self.status_modified.config(text=f"已修改: {'是' if self.modified else '否'}")
+
+    def get_zoom_text(self):
+        if self.current_image_bgr is None:
+            return "-"
+        img_h, img_w = self.current_image_bgr.shape[:2]
+        x0, x1 = self.ax.get_xlim()
+        view_w = max(1.0, abs(x1 - x0))
+        return f"{img_w / view_w:.2f}x"
+
+    def get_view_state_key(self):
+        if not self.image_files:
+            return None
+        return os.path.join(self.image_folder.get(), self.image_files[self.current_idx])
+
+    def cache_view_state(self):
+        if not self.remember_view_state.get() or self.current_image_bgr is None:
+            return
+        key = self.get_view_state_key()
+        if key:
+            self.view_state_cache[key] = {'xlim': self.ax.get_xlim(), 'ylim': self.ax.get_ylim()}
+
+    def restore_view_state(self):
+        if not self.remember_view_state.get() or self.current_image_bgr is None:
+            return False
+        key = self.get_view_state_key()
+        state = self.view_state_cache.get(key)
+        if not state:
+            return False
+        self.ax.set_xlim(state['xlim'])
+        self.ax.set_ylim(state['ylim'])
+        return True
+
+    def fit_to_window(self):
+        if self.current_image_bgr is None:
+            return
+        img_h, img_w = self.current_image_bgr.shape[:2]
+        self.ax.set_xlim(0, img_w)
+        self.ax.set_ylim(img_h, 0)
+        self.canvas.draw_idle()
+        self.set_status_message("已重置视图")
+        self.update_status_panel()
+
+    def reset_view(self):
+        self.fit_to_window()
+
+    def toggle_remember_view_state(self):
+        if not self.remember_view_state.get():
+            self.view_state_cache.clear()
+        self.set_status_message("视图记忆设置已更新")
+        self.update_status_panel()
+
+
+    def set_status_message(self, message, color='black'):
+        self.status_message = message
+        self.status_label.config(text=f"状态: {message}", foreground=color)
+
+    def update_status_panel(self):
+        if self.current_image_bgr is None or not self.image_files:
+            self.status_image.config(text="图片: -")
+            self.status_label_count.config(text="标签数: -")
+            self.status_zoom.config(text="缩放: -")
+            self.status_modified.config(text="已修改: -")
+            return
+        image_name = self.image_files[self.current_idx]
+        self.status_image.config(text=f"图片: {image_name}")
+        self.status_label_count.config(text=f"标签数: {len(self.current_labels)}")
+        self.status_zoom.config(text=f"缩放: {self.get_zoom_text()}")
+        self.status_modified.config(text=f"已修改: {'是' if self.modified else '否'}")
+
+    def get_zoom_text(self):
+        if self.current_image_bgr is None:
+            return "-"
+        img_h, img_w = self.current_image_bgr.shape[:2]
+        x0, x1 = self.ax.get_xlim()
+        view_w = max(1.0, abs(x1 - x0))
+        return f"{img_w / view_w:.2f}x"
+
+    def get_view_state_key(self):
+        if not self.image_files:
+            return None
+        return os.path.join(self.image_folder.get(), self.image_files[self.current_idx])
+
+    def cache_view_state(self):
+        if not self.remember_view_state.get() or self.current_image_bgr is None:
+            return
+        key = self.get_view_state_key()
+        if key:
+            self.view_state_cache[key] = {'xlim': self.ax.get_xlim(), 'ylim': self.ax.get_ylim()}
+
+    def restore_view_state(self):
+        if not self.remember_view_state.get() or self.current_image_bgr is None:
+            return False
+        key = self.get_view_state_key()
+        state = self.view_state_cache.get(key)
+        if not state:
+            return False
+        self.ax.set_xlim(state['xlim'])
+        self.ax.set_ylim(state['ylim'])
+        return True
+
+    def fit_to_window(self):
+        if self.current_image_bgr is None:
+            return
+        img_h, img_w = self.current_image_bgr.shape[:2]
+        self.ax.set_xlim(0, img_w)
+        self.ax.set_ylim(img_h, 0)
+        self.canvas.draw_idle()
+        self.set_status_message("已重置视图")
+        self.update_status_panel()
+
+    def reset_view(self):
+        self.fit_to_window()
+
+    def toggle_remember_view_state(self):
+        if not self.remember_view_state.get():
+            self.view_state_cache.clear()
+        self.set_status_message("视图记忆设置已更新")
+        self.update_status_panel()
 
     def push_state(self):
         self.undo_stack.append(copy.deepcopy(self.current_labels))
@@ -475,7 +660,7 @@ class YOLOEditor:
     def load_images(self):
         img_folder = self.image_folder.get()
         if not img_folder:
-            messagebox.showerror("错误", "请先选择图片文件夹")
+            self.show_error("错误", "请先选择图片文件夹")
             return
         if not self.label_folder.get():
             self.label_folder.set(img_folder)
@@ -483,7 +668,7 @@ class YOLOEditor:
         ext_list = ('.jpg', '.jpeg', '.png', '.bmp', '.tiff')
         files = [f for f in os.listdir(img_folder) if f.lower().endswith(ext_list)]
         if not files:
-            messagebox.showinfo("提示", "该文件夹中没有支持的图片文件")
+            self.show_info("提示", "该文件夹中没有支持的图片文件")
             return
         files.sort()
         self.image_files = files
@@ -527,6 +712,7 @@ class YOLOEditor:
         if self.current_image_bgr is None:
             return
 
+        self.cache_view_state()
         xlim, ylim = None, None
         if not self.is_new_image:
             xlim = self.ax.get_xlim()
@@ -539,9 +725,13 @@ class YOLOEditor:
         
         self.fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
-        if xlim is not None and ylim is not None:
+        if not self.restore_view_state() and xlim is not None and ylim is not None:
             self.ax.set_xlim(xlim)
             self.ax.set_ylim(ylim)
+        elif xlim is None and ylim is None:
+            img_h, img_w = self.current_image_bgr.shape[:2]
+            self.ax.set_xlim(0, img_w)
+            self.ax.set_ylim(img_h, 0)
 
         self.is_new_image = False
 
@@ -646,6 +836,7 @@ class YOLOEditor:
                     self.ax.draw_artist(self.drawing_rect)
 
         self.canvas.blit(self.ax.bbox)
+        self.update_status_panel()
 
     # ---------- 鼠标按下 ----------
     def on_press(self, event):
@@ -848,7 +1039,7 @@ class YOLOEditor:
 
         if self.last_class_id is None:
             self.reset_drag_state()
-            class_id = simpledialog.askinteger("设置初始类别", "请输入首个标注框类别 ID (0-9):", minvalue=0, maxvalue=9)
+            class_id = self.ask_integer("设置初始类别", "请输入首个标注框类别 ID (0-9):", minvalue=0, maxvalue=9)
             self.reset_drag_state()
             if class_id is None:
                 return
@@ -891,7 +1082,7 @@ class YOLOEditor:
         self.rect_start = None
 
         old_class = self.current_labels[idx]['class_id']
-        new_id = simpledialog.askinteger(
+        new_id = self.ask_integer(
             "修改类别",
             f"当前标注框类别: {old_class}\n请输入新类别 ID (0-9):",
             minvalue=0, maxvalue=9,
@@ -917,15 +1108,98 @@ class YOLOEditor:
             self.selected_idx = -1
             self.redraw_display()
 
+    def duplicate_selected(self):
+        if self.selected_idx < 0 or self.selected_idx >= len(self.current_labels):
+            self.show_warning("提示", "请先选中一个标注框")
+            return
+        lb = copy.deepcopy(self.current_labels[self.selected_idx])
+        img_h, img_w = self.current_image_bgr.shape[:2]
+        x1, y1, x2, y2 = self.get_box_coords_px(lb)
+        offset_x = min(20.0, max(5.0, (x2 - x1) * 0.1))
+        offset_y = min(20.0, max(5.0, (y2 - y1) * 0.1))
+        nx1 = min(max(0.0, x1 + offset_x), img_w - 1)
+        ny1 = min(max(0.0, y1 + offset_y), img_h - 1)
+        nx2 = min(float(img_w), nx1 + (x2 - x1))
+        ny2 = min(float(img_h), ny1 + (y2 - y1))
+        self.push_state()
+        lb['x_center'] = ((nx1 + nx2) / 2.0) / img_w
+        lb['y_center'] = ((ny1 + ny2) / 2.0) / img_h
+        lb['width'] = (nx2 - nx1) / img_w
+        lb['height'] = (ny2 - ny1) / img_h
+        self.current_labels.append(lb)
+        self.selected_idx = len(self.current_labels) - 1
+        self.modified = True
+        self.set_status_message("已复制当前标注框")
+        self.redraw_display()
+
+    def align_selected_to_edges(self):
+        if self.selected_idx < 0 or self.selected_idx >= len(self.current_labels):
+            self.show_warning("提示", "请先选中一个标注框")
+            return
+        img_h, img_w = self.current_image_bgr.shape[:2]
+        lb = self.current_labels[self.selected_idx]
+        x1, y1, x2, y2 = self.get_box_coords_px(lb)
+        distances = {
+            'left': x1,
+            'right': img_w - x2,
+            'top': y1,
+            'bottom': img_h - y2
+        }
+        edge = min(distances, key=distances.get)
+        self.push_state()
+        if edge == 'left':
+            x2 -= x1
+            x1 = 0
+        elif edge == 'right':
+            x1 += distances['right']
+            x2 = float(img_w)
+        elif edge == 'top':
+            y2 -= y1
+            y1 = 0
+        else:
+            y1 += distances['bottom']
+            y2 = float(img_h)
+        lb['x_center'] = ((x1 + x2) / 2.0) / img_w
+        lb['y_center'] = ((y1 + y2) / 2.0) / img_h
+        lb['width'] = (x2 - x1) / img_w
+        lb['height'] = (y2 - y1) / img_h
+        self.modified = True
+        self.set_status_message(f"已对齐到{edge}边缘")
+        self.redraw_display()
+
+    def nudge_selected(self, dx=0, dy=0, resize=False, dw=0, dh=0):
+        if self.selected_idx < 0 or self.selected_idx >= len(self.current_labels):
+            return
+        img_h, img_w = self.current_image_bgr.shape[:2]
+        lb = self.current_labels[self.selected_idx]
+        x1, y1, x2, y2 = self.get_box_coords_px(lb)
+        self.push_state()
+        if resize:
+            x2 = min(float(img_w), max(x1 + 5, x2 + dw))
+            y2 = min(float(img_h), max(y1 + 5, y2 + dh))
+        else:
+            width = x2 - x1
+            height = y2 - y1
+            x1 = max(0.0, min(float(img_w) - width, x1 + dx))
+            y1 = max(0.0, min(float(img_h) - height, y1 + dy))
+            x2 = x1 + width
+            y2 = y1 + height
+        lb['x_center'] = ((x1 + x2) / 2.0) / img_w
+        lb['y_center'] = ((y1 + y2) / 2.0) / img_h
+        lb['width'] = (x2 - x1) / img_w
+        lb['height'] = (y2 - y1) / img_h
+        self.modified = True
+        self.redraw_display()
+
     def delete_selected(self):
         focused = self.master.focus_get()
         if isinstance(focused, (ttk.Entry, tk.Entry)):
             return
             
         if self.selected_idx < 0 or self.selected_idx >= len(self.current_labels):
-            messagebox.showwarning("提示", "请先选择一个标注框（选择模式下点击框）")
+            self.show_warning("提示", "请先选择一个标注框（选择模式下点击框）")
             return
-        if messagebox.askyesno("确认删除", f"确定要删除类别 {self.current_labels[self.selected_idx]['class_id']} 的标注框吗？"):
+        if self.ask_yes_no("确认删除", f"确定要删除类别 {self.current_labels[self.selected_idx]['class_id']} 的标注框吗？"):
             self.push_state()
             del self.current_labels[self.selected_idx]
             self.modified = True
@@ -933,7 +1207,7 @@ class YOLOEditor:
 
     def modify_class(self):
         if self.selected_idx < 0 or self.selected_idx >= len(self.current_labels):
-            messagebox.showwarning("提示", "请先选择一个标注框或直接双击图片上的类别编号")
+            self.show_warning("提示", "请先选择一个标注框或直接双击图片上的类别编号")
             return
         self.change_class_by_index(self.selected_idx)
 
@@ -945,14 +1219,14 @@ class YOLOEditor:
         if self.mode != 'select':
             return
         if self.selected_idx < 0 or self.selected_idx >= len(self.current_labels):
-            messagebox.showwarning("提示", "请先选择一个标注框（选择模式下点击框）")
+            self.show_warning("提示", "请先选择一个标注框（选择模式下点击框）")
             return
         self.change_class_by_index(self.selected_idx)
 
     # ---------- 保存 (静默模式优化) ----------
     def save_current_labels(self):
         if not self.image_files:
-            messagebox.showwarning("提示", "没有加载任何图片")
+            self.show_warning("提示", "没有加载任何图片")
             return
         
         if not self.modified:
@@ -968,7 +1242,7 @@ class YOLOEditor:
 
     def save_all_labels(self):
         if not self.image_files:
-            messagebox.showwarning("提示", "没有加载任何图片")
+            self.show_warning("提示", "没有加载任何图片")
             return
         if self.modified:
             self.save_current_labels()
@@ -987,7 +1261,7 @@ class YOLOEditor:
     def prev_image(self):
         if self.current_idx <= 0:
             return
-        if self.modified and not messagebox.askyesno("未保存", "当前标注已修改，切换到其他图片将丢失修改，确定继续？"):
+        if self.modified and not self.ask_yes_no("未保存", "当前标注已修改，切换到其他图片将丢失修改，确定继续？"):
             return
         self.current_idx -= 1
         self.listbox.selection_clear(0, tk.END)
@@ -999,7 +1273,7 @@ class YOLOEditor:
     def next_image(self):
         if self.current_idx >= len(self.image_files) - 1:
             return
-        if self.modified and not messagebox.askyesno("未保存", "当前标注已修改，切换到其他图片将丢失修改，确定继续？"):
+        if self.modified and not self.ask_yes_no("未保存", "当前标注已修改，切换到其他图片将丢失修改，确定继续？"):
             return
         self.current_idx += 1
         self.listbox.selection_clear(0, tk.END)
@@ -1017,7 +1291,7 @@ class YOLOEditor:
         if target_idx == self.current_idx:
             return
 
-        if self.modified and not messagebox.askyesno("未保存", "当前标注已修改，切换到其他图片将丢失修改，确定继续？"):
+        if self.modified and not self.ask_yes_no("未保存", "当前标注已修改，切换到其他图片将丢失修改，确定继续？"):
             self.listbox.selection_clear(0, tk.END)
             self.listbox.selection_set(self.current_idx)
             return
@@ -1037,6 +1311,17 @@ class YOLOEditor:
         self.master.bind('<Control-s>', lambda e: self.save_current_labels())
         self.master.bind('<Control-Shift-S>', lambda e: self.save_all_labels())
         self.master.bind('<Escape>', lambda e: self.quit_app())
+        self.master.bind('<Control-d>', lambda e: self.duplicate_selected())
+        self.master.bind('<Control-r>', lambda e: self.align_selected_to_edges())
+        self.master.bind('<Control-0>', lambda e: self.reset_view())
+        self.master.bind('<Shift-Left>', lambda e: self.nudge_selected(dx=-1))
+        self.master.bind('<Shift-Right>', lambda e: self.nudge_selected(dx=1))
+        self.master.bind('<Shift-Up>', lambda e: self.nudge_selected(dy=-1))
+        self.master.bind('<Shift-Down>', lambda e: self.nudge_selected(dy=1))
+        self.master.bind('<Control-Shift-Left>', lambda e: self.nudge_selected(resize=True, dw=-1, dh=0))
+        self.master.bind('<Control-Shift-Right>', lambda e: self.nudge_selected(resize=True, dw=1, dh=0))
+        self.master.bind('<Control-Shift-Up>', lambda e: self.nudge_selected(resize=True, dw=0, dh=-1))
+        self.master.bind('<Control-Shift-Down>', lambda e: self.nudge_selected(resize=True, dw=0, dh=1))
 
         for key in ['a', 'A']:
             self.master.bind(key, self.safe_prev_image)
@@ -1078,12 +1363,12 @@ class YOLOEditor:
             "Ctrl + 鼠标滚轮 : 以鼠标位置为中心缩放图片\n"
             "Esc            : 退出"
         )
-        messagebox.showinfo("快捷键与操作说明", msg)
+        self.show_info("快捷键与操作说明", msg)
 
     def quit_app(self):
-        if self.modified and not messagebox.askyesno("未保存", "当前标注已修改，确定退出吗？"):
+        if self.modified and not self.ask_yes_no("未保存", "当前标注已修改，确定退出吗？"):
             return
-        if messagebox.askokcancel("退出", "确定退出程序吗？"):
+        if self.ask_ok_cancel("退出", "确定退出程序吗？"):
             self.master.quit()
 
 # ---------- 启动 ----------
