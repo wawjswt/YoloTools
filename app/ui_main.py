@@ -33,12 +33,12 @@ def save_config(config):
 class SidebarItem(tk.Frame):
     def __init__(self, master, text, icon, command):
         theme = get_theme()
-        super().__init__(master, bg=theme["bg"], cursor="hand2", highlightthickness=1, highlightbackground=theme["border"], relief="groove")
+        super().__init__(master, bg=theme["sidebar"], cursor="hand2", highlightthickness=0)
         self.command = command
         self.active = False
-        self.icon_label = tk.Label(self, text=icon, bg=theme["bg"], fg=theme["text"], font=("Segoe UI Symbol", 12, "bold"), width=2)
+        self.icon_label = tk.Label(self, text=icon, bg=theme["sidebar"], fg="#d8e4f2", font=("Segoe UI Symbol", 12, "bold"), width=2)
         self.icon_label.pack(side="left", padx=(14, 8), pady=10)
-        self.text_label = tk.Label(self, text=text, bg=theme["bg"], fg=theme["text"], font=(theme["font_family"], 10, "bold"), anchor="w")
+        self.text_label = tk.Label(self, text=text, bg=theme["sidebar"], fg="#d8e4f2", font=(theme["font_family"], 10, "bold"), anchor="w")
         self.text_label.pack(side="left", fill="x", expand=True)
         for w in (self, self.icon_label, self.text_label):
             w.bind("<Button-1>", self.on_click)
@@ -48,27 +48,28 @@ class SidebarItem(tk.Frame):
     def set_active(self, active: bool):
         self.active = active
         theme = get_theme()
-        color = theme["bg"] if not active else "#e9e9e9"
+        color = theme["sidebar"] if not active else theme["sidebar_active"]
+        foreground = "#d8e4f2" if not active else "#ffffff"
         self.configure(bg=color)
-        self.icon_label.configure(bg=color)
-        self.text_label.configure(bg=color)
+        self.icon_label.configure(bg=color, fg=foreground)
+        self.text_label.configure(bg=color, fg=foreground)
 
     def on_click(self, event=None):
         self.command()
 
     def on_enter(self, event=None):
         if not self.active:
-            color = "#f2f2f2"
+            color = theme["sidebar_hover"]
             self.configure(bg=color)
-            self.icon_label.configure(bg=color)
-            self.text_label.configure(bg=color)
+            self.icon_label.configure(bg=color, fg="#ffffff")
+            self.text_label.configure(bg=color, fg="#ffffff")
 
     def on_leave(self, event=None):
         if not self.active:
             theme = get_theme()
-            self.configure(bg=theme["bg"])
-            self.icon_label.configure(bg=theme["bg"])
-            self.text_label.configure(bg=theme["bg"])
+            self.configure(bg=theme["sidebar"])
+            self.icon_label.configure(bg=theme["sidebar"], fg="#d8e4f2")
+            self.text_label.configure(bg=theme["sidebar"], fg="#d8e4f2")
 
 
 class HomePage(tk.Frame):
