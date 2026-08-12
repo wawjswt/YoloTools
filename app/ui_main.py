@@ -59,6 +59,7 @@ class SidebarItem(tk.Frame):
 
     def on_enter(self, event=None):
         if not self.active:
+            theme = get_theme()
             color = theme["sidebar_hover"]
             self.configure(bg=color)
             self.icon_label.configure(bg=color, fg="#ffffff")

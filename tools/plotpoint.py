@@ -1,199 +1,364 @@
+import json
 import tkinter as tk
+from dataclasses import dataclass
+from pathlib import Path
 from tkinter import filedialog, messagebox
+
 from PIL import Image, ImageTk
+
+
+@dataclass
+class PointRecord:
+    x_norm: float
+    y_norm: float
 
 
 class PointPicker:
     def __init__(self, root):
         self.root = root
-        root.geometry("800x600")
-        root.title("封闭图形标注 — 支持自适应缩放")
+        self.root.geometry("1200x820")
+        self.root.minsize(980, 700)
+        self.root.title("封闭图形坐标拾取")
 
-        self.canvas = tk.Canvas(root, bg='white')
-        self.canvas.pack(fill=tk.BOTH, expand=True)
-
-        frame = tk.Frame(root)
-        frame.pack(pady=5)
-
-        self.btn_load = tk.Button(frame, text="📂 加载底图", command=self.load_image)
-        self.btn_load.pack(side=tk.LEFT, padx=5)
-
-        self.btn_clear = tk.Button(frame, text="🗑️ 清除所有点", command=self.clear_all)
-        self.btn_clear.pack(side=tk.LEFT, padx=5)
-
-        self.label = tk.Label(root, text="请点击添加点（至少3个），完成后按 Enter/Space/C 闭合")
-        self.label.pack(pady=5)
-
-        # 统一保存归一化坐标，这样窗口缩放或底图缩放后仍能正确重绘。
-        self.points_norm = []
-        self.is_finished = False
+        self.image_path = None
         self.orig_image = None
         self.photo = None
         self.image_id = None
+        self.overlay_ids = []
+        self.points = []
+        self.closed = False
+        self.dragging = False
+        self.active_index = None
+        self.status_text = tk.StringVar(value="请先加载图片，然后点击画布添加点位。")
+        self.export_path = None
 
-        self.ref_w = 600
-        self.ref_h = 400
+        self._build_ui()
+        self._bind_events()
 
-        self.canvas.bind('<Button-1>', self.add_point)
-        self.root.bind('<Return>', self.finish)
-        self.root.bind('<space>', self.finish)
-        self.root.bind('<c>', self.finish)
-        self.canvas.bind('<Configure>', self.on_resize)
+    def _build_ui(self):
+        self.root.columnconfigure(0, weight=3)
+        self.root.columnconfigure(1, weight=1)
+        self.root.rowconfigure(1, weight=1)
 
-        self.graphic_ids = []
+        toolbar = tk.Frame(self.root, bg="#f3f4f6", height=54)
+        toolbar.grid(row=0, column=0, columnspan=2, sticky="ew")
+        toolbar.grid_columnconfigure(0, weight=1)
 
-    def get_display_params(self):
-        """返回当前显示区域的宽高和偏移，用于像素坐标与归一化坐标互转。"""
-        canvas_w = self.canvas.winfo_width()
-        canvas_h = self.canvas.winfo_height()
-        if canvas_w <= 1:
-            canvas_w = 800
-        if canvas_h <= 1:
-            canvas_h = 600
+        title_box = tk.Frame(toolbar, bg="#f3f4f6")
+        title_box.grid(row=0, column=0, sticky="w", padx=16, pady=8)
+        tk.Label(title_box, text="封闭图形点位拾取", bg="#f3f4f6", fg="#111827", font=("Microsoft YaHei UI", 14, "bold")).pack(anchor="w")
+        tk.Label(title_box, text="加载图片后，在画布中按顺序点击顶点，支持撤销、拖动、闭合和导出。", bg="#f3f4f6", fg="#6b7280", font=("Microsoft YaHei UI", 9)).pack(anchor="w")
 
-        if self.orig_image is not None:
-            img_w, img_h = self.orig_image.size
-            ratio = min(canvas_w / img_w, canvas_h / img_h)
-            disp_w = int(img_w * ratio)
-            disp_h = int(img_h * ratio)
-            off_x = (canvas_w - disp_w) // 2
-            off_y = (canvas_h - disp_h) // 2
-            return disp_w, disp_h, off_x, off_y
+        action_box = tk.Frame(toolbar, bg="#f3f4f6")
+        action_box.grid(row=0, column=1, sticky="e", padx=12)
+        self._button(action_box, "加载图片", self.load_image).pack(side="left", padx=4)
+        self._button(action_box, "撤销点位", self.undo_point).pack(side="left", padx=4)
+        self._button(action_box, "清空点位", self.clear_all).pack(side="left", padx=4)
+        self._button(action_box, "闭合/取消", self.toggle_close).pack(side="left", padx=4)
+        self._button(action_box, "导出坐标", self.export_points).pack(side="left", padx=4)
 
-        return canvas_w, canvas_h, 0, 0
+        canvas_wrap = tk.Frame(self.root, bg="#d1d5db")
+        canvas_wrap.grid(row=1, column=0, sticky="nsew")
+        canvas_wrap.rowconfigure(0, weight=1)
+        canvas_wrap.columnconfigure(0, weight=1)
 
-    def redraw(self):
-        """根据当前窗口尺寸完整重绘底图、点和闭合线。"""
-        for item in self.graphic_ids:
-            self.canvas.delete(item)
-        self.graphic_ids.clear()
+        self.canvas = tk.Canvas(canvas_wrap, bg="#111827", highlightthickness=0, cursor="crosshair")
+        self.canvas.grid(row=0, column=0, sticky="nsew")
 
-        canvas_w = self.canvas.winfo_width()
-        canvas_h = self.canvas.winfo_height()
-        if canvas_w <= 1:
-            canvas_w = 800
-        if canvas_h <= 1:
-            canvas_h = 600
+        side = tk.Frame(self.root, bg="#ffffff", width=320, highlightthickness=1, highlightbackground="#e5e7eb")
+        side.grid(row=1, column=1, sticky="nsew")
+        side.grid_rowconfigure(2, weight=1)
+        side.grid_columnconfigure(0, weight=1)
 
-        if self.orig_image is not None:
-            img_w, img_h = self.orig_image.size
-            ratio = min(canvas_w / img_w, canvas_h / img_h)
-            disp_w = int(img_w * ratio)
-            disp_h = int(img_h * ratio)
-            off_x = (canvas_w - disp_w) // 2
-            off_y = (canvas_h - disp_h) // 2
+        head = tk.Frame(side, bg="#ffffff")
+        head.grid(row=0, column=0, sticky="ew", padx=14, pady=(14, 8))
+        tk.Label(head, text="点位列表", bg="#ffffff", fg="#111827", font=("Microsoft YaHei UI", 12, "bold")).pack(anchor="w")
+        tk.Label(head, text="点击条目可选中，拖动画布上的点可微调位置。", bg="#ffffff", fg="#6b7280", font=("Microsoft YaHei UI", 9)).pack(anchor="w", pady=(4, 0))
 
-            img_resized = self.orig_image.resize((disp_w, disp_h), Image.Resampling.LANCZOS)
-            self.photo = ImageTk.PhotoImage(img_resized)
-            if self.image_id is not None:
-                self.canvas.delete(self.image_id)
-            self.image_id = self.canvas.create_image(off_x, off_y, anchor='nw', image=self.photo)
-        else:
-            if self.image_id is not None:
-                self.canvas.delete(self.image_id)
-                self.image_id = None
-                self.photo = None
-            disp_w, disp_h = canvas_w, canvas_h
-            off_x, off_y = 0, 0
+        list_frame = tk.Frame(side, bg="#ffffff")
+        list_frame.grid(row=1, column=0, sticky="ew", padx=14)
+        self.listbox = tk.Listbox(list_frame, height=12, activestyle="none", selectmode="browse")
+        self.listbox.pack(side="left", fill="both", expand=True)
+        scrollbar = tk.Scrollbar(list_frame, command=self.listbox.yview)
+        scrollbar.pack(side="right", fill="y")
+        self.listbox.configure(yscrollcommand=scrollbar.set)
 
-        if not self.points_norm:
-            return
+        info = tk.Frame(side, bg="#f9fafb", highlightthickness=1, highlightbackground="#e5e7eb")
+        info.grid(row=2, column=0, sticky="nsew", padx=14, pady=14)
+        info.grid_columnconfigure(0, weight=1)
+        tk.Label(info, text="操作说明", bg="#f9fafb", fg="#111827", font=("Microsoft YaHei UI", 11, "bold")).pack(anchor="w", padx=12, pady=(10, 4))
+        tips = [
+            "1. 先点击“加载图片”选择底图。",
+            "2. 在图像上依次点击顶点，至少 3 个点才能闭合。",
+            "3. 按 Enter / Space 完成闭合，Esc 清空闭合状态。",
+            "4. 可在列表中选中点位后使用撤销，或拖动画布上的点微调。",
+            "5. 导出后可得到 JSON / TXT 两种格式。"
+        ]
+        for tip in tips:
+            tk.Label(info, text=tip, bg="#f9fafb", fg="#374151", justify="left", anchor="w", wraplength=260, font=("Microsoft YaHei UI", 9)).pack(anchor="w", padx=12, pady=2)
 
-        points_pixel = []
-        for nx, ny in self.points_norm:
-            px = nx * disp_w + off_x
-            py = ny * disp_h + off_y
-            points_pixel.append((px, py))
+        status_bar = tk.Label(self.root, textvariable=self.status_text, anchor="w", bg="#1f2937", fg="#f9fafb", padx=12, pady=8)
+        status_bar.grid(row=2, column=0, columnspan=2, sticky="ew")
 
-        for px, py in points_pixel:
-            dot = self.canvas.create_oval(px - 3, py - 3, px + 3, py + 3, fill='black')
-            self.graphic_ids.append(dot)
+    def _button(self, master, text, command):
+        return tk.Button(master, text=text, command=command, bg="#2563eb", fg="white", activebackground="#1d4ed8", activeforeground="white", relief="flat", padx=12, pady=6, cursor="hand2")
 
-        for i in range(len(points_pixel) - 1):
-            x0, y0 = points_pixel[i]
-            x1, y1 = points_pixel[i + 1]
-            line = self.canvas.create_line(x0, y0, x1, y1, fill='blue', width=2)
-            self.graphic_ids.append(line)
+    def _bind_events(self):
+        self.canvas.bind("<Button-1>", self.on_canvas_click)
+        self.canvas.bind("<B1-Motion>", self.on_canvas_drag)
+        self.canvas.bind("<ButtonRelease-1>", self.on_canvas_release)
+        self.canvas.bind("<Configure>", lambda e: self.redraw())
+        self.root.bind("<Return>", self.finish)
+        self.root.bind("<space>", self.finish)
+        self.root.bind("<Escape>", lambda e: self.clear_all())
+        self.root.bind("<Delete>", lambda e: self.undo_point())
+        self.listbox.bind("<<ListboxSelect>>", self.on_select_point)
+        self.listbox.bind("<Double-Button-1>", self.center_on_point)
 
-        if self.is_finished and len(points_pixel) >= 3:
-            x0, y0 = points_pixel[-1]
-            x1, y1 = points_pixel[0]
-            close_line = self.canvas.create_line(x0, y0, x1, y1, fill='red', width=2, dash=(4, 2))
-            self.graphic_ids.append(close_line)
+    def _set_status(self, text):
+        self.status_text.set(text)
 
-    def on_resize(self, event):
-        self.redraw()
+    def _canvas_size(self):
+        w = max(self.canvas.winfo_width(), 1)
+        h = max(self.canvas.winfo_height(), 1)
+        return w, h
 
-    def load_image(self):
-        """加载底图，并把已有点位清空，避免旧点落在新图上。"""
-        file_path = filedialog.askopenfilename(
-            title="选择底图",
-            filetypes=[("图片文件", "*.png *.jpg *.jpeg *.bmp *.gif *.tiff"), ("所有文件", "*.*")]
-        )
-        if not file_path:
-            return
+    def _display_rect(self):
+        cw, ch = self._canvas_size()
+        if not self.orig_image:
+            return 0, 0, cw, ch
+        img_w, img_h = self.orig_image.size
+        ratio = min(cw / img_w, ch / img_h)
+        disp_w = max(int(img_w * ratio), 1)
+        disp_h = max(int(img_h * ratio), 1)
+        off_x = (cw - disp_w) // 2
+        off_y = (ch - disp_h) // 2
+        return off_x, off_y, disp_w, disp_h
 
-        try:
-            img = Image.open(file_path)
-        except Exception as e:
-            messagebox.showerror("错误", f"无法打开图片：{e}")
-            return
+    def _point_to_canvas(self, point):
+        off_x, off_y, disp_w, disp_h = self._display_rect()
+        return off_x + point.x_norm * disp_w, off_y + point.y_norm * disp_h
 
-        self.orig_image = img
-        self.ref_w, self.ref_h = img.size
-        self.points_norm.clear()
-        self.is_finished = False
-        self.label.config(text=f"底图已加载（{self.ref_w}×{self.ref_h}），请点击添加点")
-        self.redraw()
-
-    def clear_all(self):
-        self.points_norm.clear()
-        self.is_finished = False
-        self.label.config(text="已清除所有点，请重新添加")
-        self.redraw()
-
-    def add_point(self, event):
-        """把点击位置转换为归一化坐标，保证不同显示尺寸下结果一致。"""
-        x, y = event.x, event.y
-        disp_w, disp_h, off_x, off_y = self.get_display_params()
-
+    def _canvas_to_point(self, x, y):
+        off_x, off_y, disp_w, disp_h = self._display_rect()
         nx = (x - off_x) / disp_w
         ny = (y - off_y) / disp_h
-        nx = max(0, min(1, nx))
-        ny = max(0, min(1, ny))
+        nx = max(0.0, min(1.0, nx))
+        ny = max(0.0, min(1.0, ny))
+        return PointRecord(nx, ny)
 
-        self.points_norm.append((nx, ny))
-        self.is_finished = False
-        self.label.config(text=f"已添加 {len(self.points_norm)} 个点，继续添加或按 Enter 闭合")
-        self.redraw()
+    def _in_image_bounds(self, x, y):
+        off_x, off_y, disp_w, disp_h = self._display_rect()
+        return off_x <= x <= off_x + disp_w and off_y <= y <= off_y + disp_h
 
-    def finish(self, event=None):
-        """闭合图形，并把归一化坐标输出到控制台供外部复用。"""
-        if len(self.points_norm) < 3:
-            self.label.config(text="至少需要 3 个点，请继续添加")
+    def _refresh_list(self):
+        self.listbox.delete(0, tk.END)
+        for i, p in enumerate(self.points, start=1):
+            self.listbox.insert(tk.END, f"{i:02d}  x={p.x_norm:.6f}  y={p.y_norm:.6f}")
+        if self.active_index is not None and 0 <= self.active_index < len(self.points):
+            self.listbox.selection_clear(0, tk.END)
+            self.listbox.selection_set(self.active_index)
+            self.listbox.see(self.active_index)
+
+    def redraw(self):
+        self.canvas.delete("all")
+        if self.orig_image is not None:
+            off_x, off_y, disp_w, disp_h = self._display_rect()
+            resized = self.orig_image.resize((disp_w, disp_h), Image.Resampling.LANCZOS)
+            self.photo = ImageTk.PhotoImage(resized)
+            self.image_id = self.canvas.create_image(off_x, off_y, anchor="nw", image=self.photo)
+            self.canvas.create_rectangle(off_x, off_y, off_x + disp_w, off_y + disp_h, outline="#374151", width=1)
+        else:
+            self.photo = None
+            self.image_id = None
+
+        if len(self.points) < 1:
             return
 
-        self.is_finished = True
+        coords = [self._point_to_canvas(p) for p in self.points]
+        for i in range(len(coords) - 1):
+            self.canvas.create_line(*coords[i], *coords[i + 1], fill="#60a5fa", width=2)
+        if self.closed and len(coords) >= 3:
+            self.canvas.create_line(*coords[-1], *coords[0], fill="#f59e0b", width=2, dash=(5, 3))
+
+        for idx, (x, y) in enumerate(coords):
+            r = 5 if idx != self.active_index else 7
+            fill = "#111827" if idx != self.active_index else "#ef4444"
+            outline = "#ffffff"
+            self.canvas.create_oval(x - r, y - r, x + r, y + r, fill=fill, outline=outline, width=2)
+            self.canvas.create_text(x + 12, y - 10, text=str(idx + 1), fill="#ffffff", font=("Microsoft YaHei UI", 9, "bold"), anchor="w")
+
+        if self.points:
+            self._set_status(f"已添加 {len(self.points)} 个点，{'已闭合' if self.closed else '未闭合'}。")
+
+    def load_image(self):
+        path = filedialog.askopenfilename(
+            title="选择底图",
+            filetypes=[
+                ("图片文件", "*.png *.jpg *.jpeg *.bmp *.gif *.tiff"),
+                ("所有文件", "*.*"),
+            ],
+        )
+        if not path:
+            return
+        try:
+            self.orig_image = Image.open(path).convert("RGB")
+        except Exception as exc:
+            messagebox.showerror("错误", f"无法打开图片：{exc}")
+            return
+
+        self.image_path = Path(path)
+        self.points.clear()
+        self.closed = False
+        self.active_index = None
+        self.export_path = self.image_path.with_suffix(".points.json")
+        self._refresh_list()
+        self.redraw()
+        self._set_status(f"已加载图片：{self.image_path.name}，可以开始拾取点位。")
+
+    def clear_all(self):
+        self.points.clear()
+        self.closed = False
+        self.active_index = None
+        self._refresh_list()
+        self.redraw()
+        self._set_status("已清空所有点位。")
+
+    def undo_point(self):
+        if not self.points:
+            self._set_status("当前没有点位可撤销。")
+            return
+        removed = self.points.pop()
+        self.closed = False
+        self.active_index = None
+        self._refresh_list()
+        self.redraw()
+        self._set_status(f"已撤销最后一个点：x={removed.x_norm:.6f}, y={removed.y_norm:.6f}")
+
+    def toggle_close(self):
+        if len(self.points) < 3:
+            self._set_status("至少需要 3 个点才能闭合。")
+            return
+        self.closed = not self.closed
+        self.redraw()
+        self._set_status("已闭合图形。" if self.closed else "已取消闭合。")
+
+    def on_canvas_click(self, event):
+        if self.orig_image is None:
+            self._set_status("请先加载图片，再开始拾取点位。")
+            return
+
+        idx = self._hit_test_point(event.x, event.y)
+        if idx is not None:
+            self.active_index = idx
+            self.dragging = True
+            self._refresh_list()
+            self.redraw()
+            return
+
+        if not self._in_image_bounds(event.x, event.y):
+            self._set_status("请在图片范围内点击添加点位。")
+            return
+
+        point = self._canvas_to_point(event.x, event.y)
+        self.points.append(point)
+        self.active_index = len(self.points) - 1
+        self.closed = False
+        self._refresh_list()
+        self.redraw()
+        self._set_status(f"已添加第 {len(self.points)} 个点。")
+
+    def _hit_test_point(self, x, y, radius=9):
+        for idx, point in enumerate(self.points):
+            px, py = self._point_to_canvas(point)
+            if (px - x) ** 2 + (py - y) ** 2 <= radius ** 2:
+                return idx
+        return None
+
+    def on_canvas_drag(self, event):
+        if self.active_index is None or self.orig_image is None:
+            return
+        if not self._in_image_bounds(event.x, event.y):
+            return
+        self.dragging = True
+        self.points[self.active_index] = self._canvas_to_point(event.x, event.y)
+        self.closed = False
+        self._refresh_list()
         self.redraw()
 
-        print("\n===== 绘制完成 =====")
-        if self.orig_image is not None:
-            print(f"底图原始尺寸: {self.ref_w}×{self.ref_h}")
-        else:
-            print(f"无底图，参考尺寸: {self.ref_w}×{self.ref_h}")
+    def on_canvas_release(self, event):
+        if self.dragging:
+            self.dragging = False
+            self._set_status("点位已更新。")
 
-        print("归一化坐标 (相对于参考尺寸):")
-        for i, (nx, ny) in enumerate(self.points_norm):
-            print(f"  点 {i + 1}: ({nx:.6f}, {ny:.6f})")
+    def on_select_point(self, event=None):
+        selection = self.listbox.curselection()
+        if not selection:
+            return
+        self.active_index = selection[0]
+        self.redraw()
 
-        flat_list = [coord for point in self.points_norm for coord in point]
-        print("\n扁平列表 (可直接使用):")
-        print(flat_list)
+    def center_on_point(self, event=None):
+        selection = self.listbox.curselection()
+        if not selection:
+            return
+        idx = selection[0]
+        self.active_index = idx
+        self.redraw()
+        self._set_status(f"已选中第 {idx + 1} 个点。")
 
-        self.label.config(text="已完成！坐标已输出到控制台。")
+    def finish(self, event=None):
+        if len(self.points) < 3:
+            self._set_status("至少需要 3 个点才能完成闭合。")
+            return
+        self.closed = True
+        self.redraw()
+        self._set_status("图形已闭合，可以导出坐标。")
+
+    def get_points_as_list(self):
+        return [[round(p.x_norm, 6), round(p.y_norm, 6)] for p in self.points]
+
+    def export_points(self):
+        if len(self.points) < 3:
+            self._set_status("至少需要 3 个点才能导出。")
+            return
+
+        default_name = self.export_path.name if self.export_path else "points.json"
+        path = filedialog.asksaveasfilename(
+            title="导出坐标",
+            defaultextension=".json",
+            initialfile=default_name,
+            filetypes=[
+                ("JSON 文件", "*.json"),
+                ("文本文件", "*.txt"),
+                ("所有文件", "*.*"),
+            ],
+        )
+        if not path:
+            return
+
+        coords = self.get_points_as_list()
+        out_path = Path(path)
+        try:
+            if out_path.suffix.lower() == ".txt":
+                text = "\n".join(f"{x:.6f}, {y:.6f}" for x, y in coords)
+                out_path.write_text(text, encoding="utf-8")
+            else:
+                payload = {
+                    "image": str(self.image_path) if self.image_path else "",
+                    "closed": self.closed,
+                    "points": coords,
+                }
+                out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception as exc:
+            messagebox.showerror("导出失败", str(exc))
+            return
+
+        self.export_path = out_path
+        self._set_status(f"已导出到：{out_path.name}")
 
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = PointPicker(root)
+    PointPicker(root)
     root.mainloop()
