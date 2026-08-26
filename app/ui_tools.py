@@ -1,10 +1,11 @@
 # app/ui_tools.py
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import messagebox, ttk
 from .theme import *
 from .ui_convert import SectionCard
 from tools.show_yolo_labels import YOLOEditor
 from tools.plotpoint import PointPicker
+from .ui_image_concat import ImageConcatWindow
 
 
 class ToolsPage(tk.Frame):
@@ -13,6 +14,7 @@ class ToolsPage(tk.Frame):
         self.app = app
         self.editor_win = None
         self.point_win = None
+        self.concat_win = None
         self._build()
 
     def _build(self):
@@ -37,6 +39,23 @@ class ToolsPage(tk.Frame):
         right_box.pack(fill="both", expand=True, padx=16, pady=(0, 16))
         tk.Label(right_box, text="适合拾取封闭区域顶点坐标。", bg=PANEL, fg=MUTED, font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(0, 10))
         ttk.Button(right_box, text="启动封闭图形点位拾取", style="Primary.TButton", command=self.launch_point_picker).pack(anchor="w")
+
+        concat = SectionCard(body, "图片拼接", "在独立窗口中预览并保存网格大图")
+        concat.pack(side="left", fill="both", expand=True, padx=(10, 0))
+        concat_box = tk.Frame(concat, bg=PANEL)
+        concat_box.pack(fill="both", expand=True, padx=16, pady=(0, 16))
+        tk.Label(concat_box, text="选择一张图片，设置行列并在 Canvas 中预览结果。", bg=PANEL, fg=MUTED, font=("Microsoft YaHei UI", 10), wraplength=260, justify="left").pack(anchor="w", pady=(0, 12))
+        ttk.Button(concat_box, text="启动图片拼接", style="Primary.TButton", command=self.launch_concat).pack(anchor="w")
+
+    def launch_concat(self):
+        if self.concat_win and self.concat_win.window.winfo_exists():
+            self.concat_win.window.lift()
+            self.concat_win.window.focus_force()
+            return
+        try:
+            self.concat_win = ImageConcatWindow(self.winfo_toplevel())
+        except Exception as error:
+            messagebox.showerror("启动失败", str(error))
 
     def launch_editor(self):
         if self.editor_win and self.editor_win.winfo_exists():
