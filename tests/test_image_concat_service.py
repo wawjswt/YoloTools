@@ -1,7 +1,7 @@
 from PIL import Image
 import pytest
 
-from tools.image_concat_service import get_image_info, tile_image
+from tools.image_concat_service import concat_images, get_image_info, tile_image
 
 
 def test_tile_image_repeats_source_in_row_major_grid():
@@ -43,3 +43,34 @@ def test_get_image_info_reports_dimensions_and_mode():
     info = get_image_info(source)
 
     assert info == {"width": 3, "height": 4, "mode": "RGBA"}
+
+
+def test_concat_images_stacks_images_left_to_right():
+    first = Image.new("RGB", (2, 3), (255, 0, 0))
+    second = Image.new("RGB", (4, 1), (0, 255, 0))
+
+    result = concat_images([first, second], direction="horizontal")
+
+    assert result.size == (6, 3)
+    assert result.getpixel((1, 2)) == (255, 0, 0)
+    assert result.getpixel((3, 0)) == (0, 255, 0)
+
+
+def test_concat_images_stacks_images_top_to_bottom():
+    first = Image.new("RGB", (2, 3), (255, 0, 0))
+    second = Image.new("RGB", (4, 1), (0, 255, 0))
+
+    result = concat_images([first, second], direction="vertical")
+
+    assert result.size == (4, 4)
+    assert result.getpixel((1, 2)) == (255, 0, 0)
+    assert result.getpixel((3, 3)) == (0, 255, 0)
+
+
+def test_concat_images_rejects_empty_input_and_unknown_direction():
+    source = Image.new("RGB", (2, 2))
+
+    with pytest.raises(ValueError):
+        concat_images([], direction="horizontal")
+    with pytest.raises(ValueError):
+        concat_images([source], direction="diagonal")
