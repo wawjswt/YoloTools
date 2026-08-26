@@ -1,6 +1,6 @@
 import os
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import colorchooser, filedialog, messagebox, ttk
 
 from PIL import Image, ImageTk
 
@@ -23,6 +23,10 @@ class ImageConcatWindow:
         self.rows = tk.StringVar(value="2")
         self.columns = tk.StringVar(value="2")
         self.direction = tk.StringVar(value="horizontal")
+        self.gap = tk.StringVar(value="0")
+        self.alignment = tk.StringVar(value="start")
+        self.background = (0, 0, 0)
+        self.background_text = tk.StringVar(value="#000000")
         self.input_info = tk.StringVar(value="尚未选择图片")
         self.output_info = tk.StringVar(value="设置参数后生成预览")
         self.status = tk.StringVar(value="请选择图片")
@@ -31,7 +35,7 @@ class ImageConcatWindow:
         self.preview = None
         self.preview_photo = None
         self._build()
-        for variable in (self.rows, self.columns, self.direction):
+        for variable in (self.rows, self.columns, self.direction, self.gap, self.alignment):
             variable.trace_add("write", self._on_parameter_changed)
 
     def _build(self):
@@ -81,9 +85,17 @@ class ImageConcatWindow:
         ttk.Button(buttons, text="上移", command=lambda: self.move_file(-1)).pack(side="left")
         ttk.Button(buttons, text="下移", command=lambda: self.move_file(1)).pack(side="left", padx=4)
         ttk.Button(buttons, text="移除", command=self.remove_file).pack(side="left")
+        ttk.Button(buttons, text="清空列表", command=self.clear_files).pack(side="left", padx=(4, 0))
         ttk.Label(parent, text="拼接方向").grid(row=2, column=0, sticky="w", pady=(0, 8))
         ttk.Radiobutton(parent, text="左右拼接", variable=self.direction, value="horizontal").grid(row=2, column=1, sticky="w")
         ttk.Radiobutton(parent, text="上下拼接", variable=self.direction, value="vertical").grid(row=2, column=1, sticky="w", padx=(100, 0))
+        ttk.Label(parent, text="图片间距").grid(row=3, column=0, sticky="w", pady=(0, 8))
+        ttk.Entry(parent, width=8, textvariable=self.gap).grid(row=3, column=1, sticky="w")
+        ttk.Label(parent, text="像素").grid(row=3, column=1, sticky="w", padx=(70, 0))
+        ttk.Label(parent, text="对齐").grid(row=3, column=2, sticky="e", padx=(8, 4))
+        ttk.Combobox(parent, width=8, state="readonly", textvariable=self.alignment, values=["start", "center", "end"]).grid(row=3, column=3, sticky="w")
+        ttk.Label(parent, text="背景").grid(row=4, column=0, sticky="w", pady=(0, 8))
+        ttk.Button(parent, textvariable=self.background_text, command=self.choose_background).grid(row=4, column=1, sticky="w")
 
     def _build_preview(self, content):
         preview_card = tk.Frame(content, bg=PANEL, highlightthickness=1, highlightbackground=BORDER, relief="groove")
@@ -177,6 +189,23 @@ class ImageConcatWindow:
         self.input_info.set(self._multi_input_text())
         self.generate_preview(show_error=False)
 
+    def clear_files(self):
+        self.sources.clear()
+        self.file_list.delete(0, tk.END)
+        self.input_info.set("尚未选择图片")
+        self.preview = None
+        self.output_info.set("设置参数后生成预览")
+        self.status.set("图片列表已清空")
+        self._render_preview()
+
+    def choose_background(self):
+        color = colorchooser.askcolor(color=self.background_text.get(), parent=self.window, title="选择拼接背景色")
+        if color[0] is None:
+            return
+        self.background = tuple(int(value) for value in color[0])
+        self.background_text.set(color[1])
+        self.generate_preview(show_error=False)
+
     def _parse_grid(self):
         try:
             rows, columns = int(self.rows.get().strip()), int(self.columns.get().strip())
@@ -204,8 +233,15 @@ class ImageConcatWindow:
                     if show_error:
                         messagebox.showwarning("提示", "请先选择至少一张图片。", parent=self.window)
                     return
-                self.preview = concat_images(self.sources, self.direction.get())
+                try:
+                    gap = int(self.gap.get().strip())
+                except ValueError as error:
+                    raise ValueError("图片间距必须是非负整数") from error
+                if gap < 0:
+                    raise ValueError("图片间距必须是非负整数")
+                self.preview = concat_images(self.sources, self.direction.get(), gap=gap, background=self.background, alignment=self.alignment.get())
                 description = "方向：左右拼接" if self.direction.get() == "horizontal" else "方向：上下拼接"
+                description += f"，间距：{gap}px"
             info = get_image_info(self.preview)
             self.output_info.set(f"尺寸：{info['width']} × {info['height']} px\n模式：{info['mode']}\n{description}\n预计像素数：{info['width'] * info['height']:,}")
             self.status.set("预览已更新，可直接保存结果")

@@ -19,24 +19,43 @@ def tile_image(source: Image.Image, rows: int, columns: int) -> Image.Image:
     return result
 
 
-def concat_images(images: list[Image.Image], direction: str = "horizontal") -> Image.Image:
+def concat_images(
+    images: list[Image.Image],
+    direction: str = "horizontal",
+    gap: int = 0,
+    background=None,
+    alignment: str = "start",
+) -> Image.Image:
     if not images:
         raise ValueError("至少需要选择一张图片")
     if direction not in {"horizontal", "vertical"}:
         raise ValueError("拼接方向必须是 horizontal 或 vertical")
+    if gap < 0:
+        raise ValueError("间距不能为负数")
+    if alignment not in {"start", "center", "end"}:
+        raise ValueError("对齐方式无效")
 
     mode = images[0].mode
     normalized = [image.convert(mode) if image.mode != mode else image for image in images]
     if direction == "horizontal":
-        result_size = (sum(image.width for image in normalized), max(image.height for image in normalized))
+        result_size = (sum(image.width for image in normalized) + gap * (len(normalized) - 1), max(image.height for image in normalized))
     else:
-        result_size = (max(image.width for image in normalized), sum(image.height for image in normalized))
-    result = Image.new(mode, result_size)
+        result_size = (max(image.width for image in normalized), sum(image.height for image in normalized) + gap * (len(normalized) - 1))
+    fill = background if background is not None else (0,) * len(normalized[0].getbands())
+    result = Image.new(mode, result_size, fill)
     offset = 0
     for image in normalized:
-        position = (offset, 0) if direction == "horizontal" else (0, offset)
+        if direction == "horizontal":
+            extra = result.height - image.height
+            aligned = extra // 2 if alignment == "center" else extra if alignment == "end" else 0
+            position = (offset, aligned)
+            offset += image.width + gap
+        else:
+            extra = result.width - image.width
+            aligned = extra // 2 if alignment == "center" else extra if alignment == "end" else 0
+            position = (aligned, offset)
+            offset += image.height + gap
         result.paste(image, position)
-        offset += image.width if direction == "horizontal" else image.height
     return result
 
 

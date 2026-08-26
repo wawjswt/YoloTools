@@ -74,3 +74,15 @@ def test_concat_images_rejects_empty_input_and_unknown_direction():
         concat_images([], direction="horizontal")
     with pytest.raises(ValueError):
         concat_images([source], direction="diagonal")
+
+
+def test_concat_images_supports_gap_background_and_center_alignment():
+    first = Image.new("RGB", (2, 2), (255, 0, 0))
+    second = Image.new("RGB", (4, 4), (0, 255, 0))
+
+    result = concat_images([first, second], direction="horizontal", gap=2, background=(1, 2, 3), alignment="center")
+
+    assert result.size == (8, 4)
+    assert result.getpixel((0, 0)) == (1, 2, 3)
+    assert result.getpixel((1, 1)) == (255, 0, 0)
+    assert result.getpixel((2, 1)) == (1, 2, 3)
