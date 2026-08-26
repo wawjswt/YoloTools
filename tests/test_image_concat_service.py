@@ -56,6 +56,23 @@ def test_concat_images_stacks_images_left_to_right():
     assert result.getpixel((3, 0)) == (0, 255, 0)
 
 
+def test_concat_images_allows_reusing_the_same_image_multiple_times():
+    first = Image.new("RGB", (1, 1), (255, 0, 0))
+    second = Image.new("RGB", (1, 1), (0, 255, 0))
+    sources = [first, second, first, second, first]
+
+    result = concat_images(sources, direction="horizontal")
+
+    assert result.size == (5, 1)
+    assert [result.getpixel((index, 0)) for index in range(5)] == [
+        (255, 0, 0),
+        (0, 255, 0),
+        (255, 0, 0),
+        (0, 255, 0),
+        (255, 0, 0),
+    ]
+
+
 def test_concat_images_stacks_images_top_to_bottom():
     first = Image.new("RGB", (2, 3), (255, 0, 0))
     second = Image.new("RGB", (4, 1), (0, 255, 0))

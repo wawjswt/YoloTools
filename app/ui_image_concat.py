@@ -71,8 +71,8 @@ class ImageConcatWindow:
 
     def _build_multi_controls(self, parent):
         parent.grid_columnconfigure(1, weight=1)
-        ttk.Button(parent, text="选择多张图片", command=self.choose_multiple).grid(row=0, column=0, padx=(0, 8), pady=8, sticky="w")
-        ttk.Label(parent, text="可调整顺序，图片从左上角开始排列。").grid(row=0, column=1, sticky="w")
+        ttk.Button(parent, text="添加图片", command=self.choose_multiple).grid(row=0, column=0, padx=(0, 8), pady=8, sticky="w")
+        ttk.Label(parent, text="可重复添加同一文件，并调整每个条目的顺序。").grid(row=0, column=1, sticky="w")
         ttk.Button(parent, text="生成预览", style="Primary.TButton", command=self.generate_preview).grid(row=0, column=2, padx=(12, 0))
         ttk.Button(parent, text="保存结果", command=self.save_result).grid(row=0, column=3, padx=(8, 0))
         list_frame = tk.Frame(parent, bg=get_theme()["bg"])
@@ -143,19 +143,21 @@ class ImageConcatWindow:
         paths = filedialog.askopenfilenames(parent=self.window, title="选择多张图片", filetypes=IMAGE_FILETYPES)
         if not paths:
             return
+        self._append_multi_paths(paths)
+
+    def _append_multi_paths(self, paths):
+        added = []
         try:
-            self.sources = []
-            self.file_list.delete(0, tk.END)
             for path in paths:
                 with Image.open(path) as image:
-                    self.sources.append(image.copy())
-                self.file_list.insert(tk.END, os.path.basename(path))
+                    added.append((image.copy(), os.path.basename(path)))
+            for image, name in added:
+                self.sources.append(image)
+                self.file_list.insert(tk.END, name)
             self.input_info.set(self._multi_input_text())
             self.status.set(f"已加载 {len(self.sources)} 张图片")
             self.generate_preview()
         except Exception as error:
-            self.sources = []
-            self.file_list.delete(0, tk.END)
             messagebox.showerror("打开失败", str(error), parent=self.window)
 
     def _multi_input_text(self):
