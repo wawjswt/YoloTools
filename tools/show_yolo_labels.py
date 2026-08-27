@@ -13,6 +13,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
 from matplotlib.lines import Line2D
+from tools.yolo_editor_overlay import get_image_overlay_anchor
 
 # ---------- 中文字体 ----------
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'WenQuanYi Micro Hei', 'Arial Unicode MS']
@@ -363,6 +364,24 @@ class YOLOEditor:
         self.status_message = message
         self.status_label.config(text=f"状态: {message}", foreground=color)
 
+    def _get_class_summary_text(self):
+        if not self.current_labels:
+            return '标注目标：0 个'
+        counts = {}
+        for lb in self.current_labels:
+            class_id = lb.get('class_id', 0)
+            counts[class_id] = counts.get(class_id, 0) + 1
+        parts = [f'{class_id}:{counts[class_id]}' for class_id in sorted(counts)]
+        return f"标注目标：{len(self.current_labels)} 个 | 类别：" + ', '.join(parts)
+
+    def _get_coord_overlay_text(self, x, y):
+        summary = self._get_class_summary_text()
+        return f'x: {x}  y: {y}\n{summary}'
+
+    def _update_coord_overlay(self):
+        if self.coord_text is not None:
+            self.coord_text.set_text(self._get_class_summary_text())
+
     def update_status_panel(self):
         if self.current_image_bgr is None or not self.image_files:
             self.status_image.config(text="图片: -")
@@ -436,12 +455,14 @@ class YOLOEditor:
             self.status_label_count.config(text="标签数: -")
             self.status_zoom.config(text="缩放: -")
             self.status_modified.config(text="已修改: -")
+            self._update_coord_overlay()
             return
         image_name = self.image_files[self.current_idx]
         self.status_image.config(text=f"图片: {image_name}")
-        self.status_label_count.config(text=f"标签数: {len(self.current_labels)}")
+        self.status_label_count.config(text=self._get_class_summary_text())
         self.status_zoom.config(text=f"缩放: {self.get_zoom_text()}")
         self.status_modified.config(text=f"已修改: {'是' if self.modified else '否'}")
+        self._update_coord_overlay()
 
     def get_zoom_text(self):
         if self.current_image_bgr is None:
@@ -735,9 +756,16 @@ class YOLOEditor:
 
         self.is_new_image = False
 
-        self.coord_text = self.ax.text(0.01, 0.02, '', transform=self.ax.transAxes,
-                                       color='yellow', fontsize=10, animated=True,
-                                       bbox=dict(facecolor='black', alpha=0.6, edgecolor='none'))
+        img_h, img_w = self.current_image_bgr.shape[:2]
+        overlay_x, overlay_y = get_image_overlay_anchor(img_w, img_h)
+        self.coord_text = self.ax.text(
+            overlay_x, overlay_y, '',
+            transform=self.ax.transData,
+            horizontalalignment='left', verticalalignment='bottom',
+            color='yellow', fontsize=10, animated=True,
+            bbox=dict(facecolor='black', alpha=0.6, edgecolor='none')
+        )
+        self._update_coord_overlay()
 
         self.hline = Line2D([], [], color='lightgray', linewidth=1, linestyle='-', alpha=0.6, visible=False, animated=True)
         self.vline = Line2D([], [], color='lightgray', linewidth=1, linestyle='-', alpha=0.6, visible=False, animated=True)
@@ -806,7 +834,7 @@ class YOLOEditor:
 
         if x_m is not None and y_m is not None:
             if self.coord_text is not None:
-                self.coord_text.set_text(f'x: {int(x_m)}  y: {int(y_m)}')
+                self.coord_text.set_text(self._get_coord_overlay_text(int(x_m), int(y_m)))
                 self.ax.draw_artist(self.coord_text)
 
             if self.hline is not None and self.vline is not None:
