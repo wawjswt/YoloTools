@@ -24,14 +24,14 @@ class PointPicker:
         self.orig_image = None
         self.photo = None
         self.image_id = None
+        self._scaled_image = None
+        self._display_cache_key = None
         self.points = []
         self.closed = False
         self.dragging = False
         self.active_index = None
         self.status_text = tk.StringVar(value="可先直接在空白画布上点位，也可先加载图片后再拾点。")
         self.export_path = None
-        self.free_draw = True
-
         self._build_ui()
         self._bind_events()
 
@@ -121,8 +121,8 @@ class PointPicker:
             "1. 你可以不加载图片，直接在黑色画布上点位。",
             "2. 加载图片后，点位会按图片比例映射到画布上。",
             "3. 按 Enter / Space 完成闭合，Esc 清空，Delete 撤销最后一点。",
-            "4. 列表中可选中点位，双击可快速定位该点。",
-            "5. 导出时会同时保留 x1,y1,x2,y2... 平滑列表和点集列表。",
+            "4. 列表中可选中对应点位，拖动画布上的红点可微调。",
+            "5. 导出时会保留 x1,y1,x2,y2... 扁平坐标列表和点集列表。",
         ]
         for tip in tips:
             tk.Label(
@@ -225,13 +225,18 @@ class PointPicker:
         self.canvas.delete("all")
         if self.orig_image is not None:
             off_x, off_y, disp_w, disp_h = self._display_rect()
-            resized = self.orig_image.resize((disp_w, disp_h), Image.Resampling.LANCZOS)
-            self.photo = ImageTk.PhotoImage(resized)
+            cache_key = (id(self.orig_image), disp_w, disp_h)
+            if self._display_cache_key != cache_key:
+                self._scaled_image = self.orig_image.resize((disp_w, disp_h), Image.Resampling.LANCZOS)
+                self.photo = ImageTk.PhotoImage(self._scaled_image)
+                self._display_cache_key = cache_key
             self.image_id = self.canvas.create_image(off_x, off_y, anchor="nw", image=self.photo)
             self.canvas.create_rectangle(off_x, off_y, off_x + disp_w, off_y + disp_h, outline="#374151", width=1)
         else:
             self.photo = None
             self.image_id = None
+            self._scaled_image = None
+            self._display_cache_key = None
 
         if not self.points:
             return
@@ -260,6 +265,15 @@ class PointPicker:
         )
         if not path:
             return
+        if self.points:
+            should_clear = messagebox.askyesno(
+                "加载图片",
+                "当前已有点位。加载图片会清空这些点位并按新图片重新拾取，是否继续？",
+                parent=self.root,
+            )
+            if not should_clear:
+                self._set_status("已取消加载图片，现有点位保持不变。")
+                return
         try:
             self.orig_image = Image.open(path).convert("RGB")
         except Exception as exc:
@@ -267,6 +281,9 @@ class PointPicker:
             return
 
         self.image_path = Path(path)
+        self.photo = None
+        self._scaled_image = None
+        self._display_cache_key = None
         self.points.clear()
         self.closed = False
         self.active_index = None
@@ -374,6 +391,7 @@ class PointPicker:
         return [[round(p.x_norm, 6), round(p.y_norm, 6)] for p in self.points]
 
     def get_smooth_flat_coords(self):
+        """返回兼容旧版 ``x1,y1,x2,y2,...`` 的扁平坐标列表。"""
         coords = []
         for p in self.points:
             coords.extend([round(p.x_norm, 6), round(p.y_norm, 6)])
@@ -403,11 +421,10 @@ class PointPicker:
         out_path = Path(path)
         try:
             if out_path.suffix.lower() == ".txt":
-                lines = [
-                    "smooth=" + ", ".join(f"{v:.6f}" for v in smooth_flat),
-                    "pairs=" + " | ".join(f"({x:.6f}, {y:.6f})" for x, y in point_pairs),
-                ]
-                out_path.write_text("\n".join(lines), encoding="utf-8")
+                out_path.write_text(
+                    ",".join(f"{v:.6f}" for v in smooth_flat),
+                    encoding="utf-8",
+                )
             else:
                 payload = {
                     "image": str(self.image_path) if self.image_path else "",
