@@ -1,7 +1,7 @@
 from PIL import Image
 import pytest
 
-from tools.image_concat_service import concat_images, get_image_info, tile_image
+from tools.image_concat_service import concat_images, concat_images_grid, get_image_info, tile_image
 
 
 def test_tile_image_repeats_source_in_row_major_grid():
@@ -103,3 +103,39 @@ def test_concat_images_supports_gap_background_and_center_alignment():
     assert result.getpixel((0, 0)) == (1, 2, 3)
     assert result.getpixel((1, 1)) == (255, 0, 0)
     assert result.getpixel((2, 1)) == (1, 2, 3)
+
+
+def test_concat_images_grid_keeps_full_grid_and_centers_images_in_cells():
+    red = Image.new("RGB", (2, 2), (255, 0, 0))
+    green = Image.new("RGB", (4, 4), (0, 255, 0))
+    blue = Image.new("RGB", (2, 4), (0, 0, 255))
+
+    result = concat_images_grid(
+        [red, green, blue],
+        rows=2,
+        columns=2,
+        gap=1,
+        background=(1, 2, 3),
+    )
+
+    assert result.size == (9, 9)
+    assert result.getpixel((1, 1)) == (255, 0, 0)
+    assert result.getpixel((0, 0)) == (1, 2, 3)
+    assert result.getpixel((6, 1)) == (0, 255, 0)
+    assert result.getpixel((1, 6)) == (0, 0, 255)
+    assert result.getpixel((6, 6)) == (1, 2, 3)
+
+
+@pytest.mark.parametrize(
+    "images, rows, columns, gap, match",
+    [
+        ([], 1, 1, 0, "至少需要选择一张图片"),
+        ([Image.new("RGB", (1, 1))], 0, 1, 0, "正整数"),
+        ([Image.new("RGB", (1, 1))], 1, 0, 0, "正整数"),
+        ([Image.new("RGB", (1, 1))], 1, 1, -1, "间距不能为负数"),
+        ([Image.new("RGB", (1, 1)), Image.new("RGB", (1, 1))], 1, 1, 0, "超过网格容量"),
+    ],
+)
+def test_concat_images_grid_rejects_invalid_layout_parameters(images, rows, columns, gap, match):
+    with pytest.raises(ValueError, match=match):
+        concat_images_grid(images, rows=rows, columns=columns, gap=gap)

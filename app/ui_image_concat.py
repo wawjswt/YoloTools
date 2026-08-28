@@ -5,7 +5,7 @@ from tkinter import colorchooser, filedialog, messagebox, ttk
 from PIL import Image, ImageTk
 
 from .theme import *
-from tools.image_concat_service import concat_images, get_image_info, tile_image
+from tools.image_concat_service import concat_images, concat_images_grid, get_image_info, tile_image
 
 
 IMAGE_FILETYPES = [("图片文件", "*.png *.jpg *.jpeg *.bmp *.tif *.tiff *.webp"), ("所有文件", "*.*")]
@@ -23,6 +23,8 @@ class ImageConcatWindow:
         self.rows = tk.StringVar(value="2")
         self.columns = tk.StringVar(value="2")
         self.direction = tk.StringVar(value="horizontal")
+        self.grid_rows = tk.StringVar(value="2")
+        self.grid_columns = tk.StringVar(value="2")
         self.gap = tk.StringVar(value="0")
         self.alignment = tk.StringVar(value="start")
         self.background = (0, 0, 0)
@@ -35,7 +37,8 @@ class ImageConcatWindow:
         self.preview = None
         self.preview_photo = None
         self._build()
-        for variable in (self.rows, self.columns, self.direction, self.gap, self.alignment):
+        self._update_multi_layout_controls()
+        for variable in (self.rows, self.columns, self.direction, self.grid_rows, self.grid_columns, self.gap, self.alignment):
             variable.trace_add("write", self._on_parameter_changed)
 
     def _build(self):
@@ -86,16 +89,28 @@ class ImageConcatWindow:
         ttk.Button(buttons, text="下移", command=lambda: self.move_file(1)).pack(side="left", padx=4)
         ttk.Button(buttons, text="移除", command=self.remove_file).pack(side="left")
         ttk.Button(buttons, text="清空列表", command=self.clear_files).pack(side="left", padx=(4, 0))
-        ttk.Label(parent, text="拼接方向").grid(row=2, column=0, sticky="w", pady=(0, 8))
+        ttk.Label(parent, text="拼接布局").grid(row=2, column=0, sticky="w", pady=(0, 8))
         ttk.Radiobutton(parent, text="左右拼接", variable=self.direction, value="horizontal").grid(row=2, column=1, sticky="w")
         ttk.Radiobutton(parent, text="上下拼接", variable=self.direction, value="vertical").grid(row=2, column=1, sticky="w", padx=(100, 0))
+        ttk.Radiobutton(parent, text="网格拼接", variable=self.direction, value="grid").grid(row=2, column=1, sticky="w", padx=(200, 0))
         ttk.Label(parent, text="图片间距").grid(row=3, column=0, sticky="w", pady=(0, 8))
         ttk.Entry(parent, width=8, textvariable=self.gap).grid(row=3, column=1, sticky="w")
         ttk.Label(parent, text="像素").grid(row=3, column=1, sticky="w", padx=(70, 0))
         ttk.Label(parent, text="对齐").grid(row=3, column=2, sticky="e", padx=(8, 4))
-        ttk.Combobox(parent, width=8, state="readonly", textvariable=self.alignment, values=["start", "center", "end"]).grid(row=3, column=3, sticky="w")
-        ttk.Label(parent, text="背景").grid(row=4, column=0, sticky="w", pady=(0, 8))
-        ttk.Button(parent, textvariable=self.background_text, command=self.choose_background).grid(row=4, column=1, sticky="w")
+        self.alignment_combo = ttk.Combobox(parent, width=8, state="readonly", textvariable=self.alignment, values=["start", "center", "end"])
+        self.alignment_combo.grid(row=3, column=3, sticky="w")
+        self.alignment_hint = ttk.Label(parent, text="")
+        self.alignment_hint.grid(row=4, column=3, sticky="w", pady=(0, 8))
+        self.grid_rows_label = ttk.Label(parent, text="网格行")
+        self.grid_rows_label.grid(row=4, column=0, sticky="w", pady=(0, 8))
+        self.grid_rows_entry = ttk.Entry(parent, width=8, textvariable=self.grid_rows)
+        self.grid_rows_entry.grid(row=4, column=1, sticky="w")
+        self.grid_columns_label = ttk.Label(parent, text="网格列")
+        self.grid_columns_label.grid(row=4, column=2, sticky="e", padx=(8, 4))
+        self.grid_columns_entry = ttk.Entry(parent, width=8, textvariable=self.grid_columns)
+        self.grid_columns_entry.grid(row=4, column=3, sticky="w")
+        ttk.Label(parent, text="背景").grid(row=5, column=0, sticky="w", pady=(0, 8))
+        ttk.Button(parent, textvariable=self.background_text, command=self.choose_background).grid(row=5, column=1, sticky="w")
 
     def _build_preview(self, content):
         preview_card = tk.Frame(content, bg=PANEL, highlightthickness=1, highlightbackground=BORDER, relief="groove")
@@ -217,7 +232,27 @@ class ImageConcatWindow:
             raise ValueError("行数和列数必须是正整数")
         return rows, columns
 
+    def _parse_multi_grid(self):
+        try:
+            rows, columns = int(self.grid_rows.get().strip()), int(self.grid_columns.get().strip())
+        except ValueError as error:
+            raise ValueError("网格行数和列数必须是正整数") from error
+        if rows <= 0 or columns <= 0:
+            raise ValueError("网格行数和列数必须是正整数")
+        return rows, columns
+
+    def _update_multi_layout_controls(self):
+        if not hasattr(self, "alignment_combo"):
+            return
+        is_grid = self.direction.get() == "grid"
+        grid_state = "normal" if is_grid else "disabled"
+        self.grid_rows_entry.configure(state=grid_state)
+        self.grid_columns_entry.configure(state=grid_state)
+        self.alignment_combo.configure(state="disabled" if is_grid else "readonly")
+        self.alignment_hint.configure(text="网格单元内居中" if is_grid else "")
+
     def _on_parameter_changed(self, *_):
+        self._update_multi_layout_controls()
         self.generate_preview(show_error=False)
 
     def generate_preview(self, show_error=True):
@@ -241,9 +276,33 @@ class ImageConcatWindow:
                     raise ValueError("图片间距必须是非负整数") from error
                 if gap < 0:
                     raise ValueError("图片间距必须是非负整数")
-                self.preview = concat_images(self.sources, self.direction.get(), gap=gap, background=self.background, alignment=self.alignment.get())
-                description = "方向：左右拼接" if self.direction.get() == "horizontal" else "方向：上下拼接"
-                description += f"，间距：{gap}px"
+                if self.direction.get() == "grid":
+                    rows, columns = self._parse_multi_grid()
+                    self.preview = concat_images_grid(
+                        self.sources,
+                        rows=rows,
+                        columns=columns,
+                        gap=gap,
+                        background=self.background,
+                    )
+                    cell_width = max(image.width for image in self.sources)
+                    cell_height = max(image.height for image in self.sources)
+                    description = (
+                        f"布局：网格拼接（{rows} 行 × {columns} 列）\n"
+                        f"已放置：{len(self.sources)} / {rows * columns} 张\n"
+                        f"单元格：{cell_width} × {cell_height} px\n"
+                        f"间距：{gap}px"
+                    )
+                else:
+                    self.preview = concat_images(
+                        self.sources,
+                        self.direction.get(),
+                        gap=gap,
+                        background=self.background,
+                        alignment=self.alignment.get(),
+                    )
+                    description = "布局：左右拼接" if self.direction.get() == "horizontal" else "布局：上下拼接"
+                    description += f"\n间距：{gap}px"
             info = get_image_info(self.preview)
             self.output_info.set(f"尺寸：{info['width']} × {info['height']} px\n模式：{info['mode']}\n{description}\n预计像素数：{info['width'] * info['height']:,}")
             self.status.set("预览已更新，可直接保存结果")
