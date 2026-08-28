@@ -59,6 +59,41 @@ def concat_images(
     return result
 
 
+def concat_images_grid(
+    images: list[Image.Image],
+    rows: int,
+    columns: int,
+    gap: int = 0,
+    background=None,
+) -> Image.Image:
+    if not images:
+        raise ValueError("至少需要选择一张图片")
+    if rows <= 0 or columns <= 0:
+        raise ValueError("行数和列数必须是正整数")
+    if gap < 0:
+        raise ValueError("间距不能为负数")
+    if len(images) > rows * columns:
+        raise ValueError("图片数量超过网格容量，请增大行数或列数")
+
+    mode = images[0].mode
+    normalized = [image.convert(mode) if image.mode != mode else image for image in images]
+    cell_width = max(image.width for image in normalized)
+    cell_height = max(image.height for image in normalized)
+    result_size = (
+        columns * cell_width + (columns - 1) * gap,
+        rows * cell_height + (rows - 1) * gap,
+    )
+    fill = background if background is not None else (0,) * len(normalized[0].getbands())
+    result = Image.new(mode, result_size, fill)
+
+    for index, image in enumerate(normalized):
+        row, column = divmod(index, columns)
+        x = column * (cell_width + gap) + (cell_width - image.width) // 2
+        y = row * (cell_height + gap) + (cell_height - image.height) // 2
+        result.paste(image, (x, y))
+    return result
+
+
 def concat_image_file(input_path: str, output_path: str, rows: int, columns: int) -> str:
     with Image.open(input_path) as source:
         result = tile_image(source, rows, columns)
